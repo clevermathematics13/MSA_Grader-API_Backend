@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      * { box-sizing: border-box; }
+      body { 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+      }
+      
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        overflow: hidden;
+      }
+      
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px;
+        text-align: center;
+        position: relative;
+      }
+      
+      .header h1 {
+        margin: 0;
+        font-size: 2.5em;
+        font-weight: 300;
+      }
+      
+      .nav-link {
+        position: absolute;
+        top: 25px;
+        right: 30px;
+        background: rgba(255,255,255,0.95);
+        color: #667eea;
+        padding: 12px 24px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 15px;
+        font-weight: 700;
+        transition: all 0.3s;
+        border: 2px solid white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        z-index: 10;
+      }
+      
+      .nav-link:hover {
+        background: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      }
+      
+      .content {
+        padding: 30px;
+      }
+      
+      .selection-panel {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 25px;
+        margin-bottom: 25px;
+      }
+      
+      .form-row {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 15px;
+      }
+      
+      .form-row label {
+        font-weight: 600;
+        color: #495057;
+        min-width: 120px;
+      }
+      
+      .form-row select, .form-row input {
+        flex: 1;
+        padding: 10px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+      }
+      
+      .form-row select:focus, .form-row input:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      
+      .form-row select:disabled {
+        background: #e9ecef;
+        cursor: not-allowed;
+      }
+      
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      
+      .checkbox-row input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+      }
+      
+      .checkbox-row label {
+        font-size: 14px;
+        color: #495057;
+        cursor: pointer;
+      }
+      
+      .action-panel {
+        background: white;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 25px;
+        margin-bottom: 25px;
+        display: none;
+      }
+      
+      .action-panel.visible {
+        display: block;
+      }
+      
+      .action-panel h3 {
+        margin-top: 0;
+        color: #343a40;
+        font-size: 1.3em;
+        margin-bottom: 20px;
+      }
+      
+      .action-buttons {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 15px;
+      }
+      
+      .action-btn {
+        padding: 15px 25px;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      
+      .action-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      }
+      
+      .action-btn:active {
+        transform: translateY(0);
+      }
+      
+      .action-btn.atomize {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+      }
+      
+      .action-btn.ocr {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        color: white;
+      }
+      
+      .action-btn.grader {
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        color: white;
+      }
+      
+      .status-panel {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        min-height: 200px;
+        display: none;
+      }
+      
+      .status-panel.visible {
+        display: block;
+      }
+      
+      .status-panel h3 {
+        margin-top: 0;
+        color: #343a40;
+        font-size: 1.2em;
+      }
+      
+      .log-container {
+        background: #2b2b2b;
+        color: #f8f8f2;
+        padding: 15px;
+        border-radius: 6px;
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+      }
+      
+      .log-entry {
+        padding: 5px 0;
+        border-bottom: 1px solid #404040;
+      }
+      
+      .log-entry:last-child {
+        border-bottom: none;
+      }
+      
+      .log-success { color: #a6e22e; }
+      .log-error { color: #f92672; }
+      .log-warn { color: #e6db74; }
+      .log-info { color: #66d9ef; }
+      
+      .loader {
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #667eea;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        margin-left: 10px;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.7);
+      }
+      
+      .modal-content {
+        background-color: white;
+        margin: 5% auto;
+        padding: 30px;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+      
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      
+      .modal-header h2 {
+        margin: 0;
+        color: #343a40;
+      }
+      
+      .close-btn {
+        font-size: 28px;
+        font-weight: bold;
+        color: #aaa;
+        cursor: pointer;
+        border: none;
+        background: none;
+      }
+      
+      .close-btn:hover {
+        color: #000;
+      }
+      
+      .ocr-review-area {
+        margin: 20px 0;
+      }
+      
+      .ocr-review-area textarea {
+        width: 100%;
+        min-height: 300px;
+        padding: 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        resize: vertical;
+      }
+      
+      .image-preview {
+        max-width: 100%;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        margin: 15px 0;
+      }
+      
+      .modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 20px;
+      }
+      
+      .btn-primary {
+        background: #667eea;
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      
+      .btn-primary:hover {
+        background: #5568d3;
+      }
+      
+      .btn-secondary {
+        background: #6c757d;
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      
+      .btn-secondary:hover {
+        background: #5a6268;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <a href="#" class="nav-link" id="msaToolsLink">🔧 MSA Tools</a>
+        <h1>🎓 Exam Management System</h1>
+      </div>
+      
+      <div class="content">
+        <!-- Class & Exam Selection -->
+        <div class="selection-panel">
+          <div class="checkbox-row">
+            <input type="checkbox" id="includePastClasses">
+            <label for="includePastClasses">Include Past Classes</label>
+          </div>
+          
+          <div class="form-row">
+            <label for="classSelect">Class:</label>
+            <select id="classSelect">
+              <option value="">Loading classes...</option>
+            </select>
+          </div>
+          
+          <div class="form-row">
+            <label for="examSelect">Exam:</label>
+            <select id="examSelect" disabled>
+              <option value="">Select a class first</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- Action Buttons (shown after exam selection) -->
+        <div class="action-panel" id="actionPanel">
+          <h3>Actions for Selected Exam</h3>
+          <div class="action-buttons">
+            <button class="action-btn atomize" id="atomizeBtn">
+              <span>📋</span>
+              <span>Markscheme Atomization</span>
+            </button>
+            <button class="action-btn ocr" id="ocrBtn">
+              <span>📄</span>
+              <span>Student Work OCR</span>
+            </button>
+            <button class="action-btn grader" id="graderBtn">
+              <span>✅</span>
+              <span>Student Response Grader</span>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Status Log -->
+        <div class="status-panel" id="statusPanel">
+          <h3>Status Log</h3>
+          <div class="log-container" id="logContainer"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- OCR Review Modal -->
+    <div id="ocrModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Review OCR Result</h2>
+          <button class="close-btn" onclick="closeOcrModal()">&times;</button>
+        </div>
+        
+        <div>
+          <h3>Original Image</h3>
+          <img id="ocrImagePreview" class="image-preview" src="" alt="Student work">
+        </div>
+        
+        <div class="ocr-review-area">
+          <h3>OCR Text (Edit if needed)</h3>
+          <textarea id="ocrTextArea"></textarea>
+        </div>
+        
+        <div class="modal-actions">
+          <button class="btn-secondary" onclick="closeOcrModal()">Cancel</button>
+          <button class="btn-primary" onclick="approveOcrText()">Approve & Continue</button>
+        </div>
+      </div>
+    </div>
+    
+    <script>
+      // State management
+      let currentClass = null;
+      let currentExam = null;
+      let ocrReviewQueue = [];
+      let currentOcrReview = null;
+      
+      // Initialize on page load
+      window.onload = function() {
+        // Get the web app URL from the server and set MSA Tools link
+        google.script.run
+          .withSuccessHandler(function(url) {
+            document.getElementById('msaToolsLink').href = url + '?ui=msa';
+          })
+          .withFailureHandler(function(error) {
+            // Fallback to relative URL if server call fails
+            console.error('Failed to get web app URL:', error);
+            document.getElementById('msaToolsLink').href = '?ui=msa';
+          })
+          .getWebAppUrl();
+        
+        log('System ready. Loading classes...', 'info');
+        loadClasses();
+        
+        // Event listeners
+        document.getElementById('includePastClasses').addEventListener('change', loadClasses);
+        document.getElementById('classSelect').addEventListener('change', onClassSelected);
+        document.getElementById('examSelect').addEventListener('change', onExamSelected);
+        document.getElementById('atomizeBtn').addEventListener('click', runAtomization);
+        document.getElementById('ocrBtn').addEventListener('click', runStudentOcr);
+        document.getElementById('graderBtn').addEventListener('click', runGrader);
+      };
+      
+      // Load available classes
+      function loadClasses() {
+        const includePast = document.getElementById('includePastClasses').checked;
+        log('Loading classes (includePast: ' + includePast + ')...', 'info');
+        
+        google.script.run
+          .withSuccessHandler(function(classes) {
+            const select = document.getElementById('classSelect');
+            select.innerHTML = '<option value="">-- Select a Class --</option>';
+            
+            classes.forEach(cls => {
+              const option = document.createElement('option');
+              option.value = cls.id;
+              option.textContent = cls.name + (cls.isPast ? ' (Past)' : '');
+              select.appendChild(option);
+            });
+            
+            log('Loaded ' + classes.length + ' classes', 'success');
+          })
+          .withFailureHandler(function(error) {
+            log('Error loading classes: ' + error, 'error');
+          })
+          .getClasses(includePast);
+      }
+      
+      // Handle class selection
+      function onClassSelected() {
+        const classSelect = document.getElementById('classSelect');
+        const examSelect = document.getElementById('examSelect');
+        const actionPanel = document.getElementById('actionPanel');
+        
+        currentClass = classSelect.value;
+        actionPanel.classList.remove('visible');
+        
+        if (!currentClass) {
+          examSelect.disabled = true;
+          examSelect.innerHTML = '<option value="">Select a class first</option>';
+          return;
+        }
+        
+        examSelect.disabled = false;
+        examSelect.innerHTML = '<option value="">Loading exams...</option>';
+        
+        log('Loading exams for class: ' + classSelect.options[classSelect.selectedIndex].text, 'info');
+        
+        google.script.run
+          .withSuccessHandler(function(exams) {
+            examSelect.innerHTML = '<option value="">-- Select an Exam --</option>';
+            examSelect.innerHTML += '<option value="__CREATE_NEW__">➕ Create New Exam (Under Construction)</option>';
+            
+            exams.forEach(exam => {
+              const option = document.createElement('option');
+              option.value = exam.id;
+              option.textContent = exam.name;
+              examSelect.appendChild(option);
+            });
+            
+            log('Loaded ' + exams.length + ' exams', 'success');
+          })
+          .withFailureHandler(function(error) {
+            log('Error loading exams: ' + error, 'error');
+            examSelect.innerHTML = '<option value="">Error loading exams</option>';
+          })
+          .getExamsForClass(currentClass);
+      }
+      
+      // Handle exam selection
+      function onExamSelected() {
+        const examSelect = document.getElementById('examSelect');
+        const actionPanel = document.getElementById('actionPanel');
+        const statusPanel = document.getElementById('statusPanel');
+        
+        currentExam = examSelect.value;
+        
+        if (!currentExam) {
+          actionPanel.classList.remove('visible');
+          return;
+        }
+        
+        if (currentExam === '__CREATE_NEW__') {
+          log('📋 Exam creation is under construction. Coming soon!', 'warn');
+          examSelect.value = '';
+          currentExam = null;
+          return;
+        }
+        
+        actionPanel.classList.add('visible');
+        statusPanel.classList.add('visible');
+        log('Exam selected: ' + examSelect.options[examSelect.selectedIndex].text, 'success');
+      }
+      
+      // Run Markscheme Atomization
+      function runAtomization() {
+        if (!currentExam) return;
+        
+        log('🚀 Starting Markscheme Atomization...', 'info');
+        showLoader('atomizeBtn');
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            hideLoader('atomizeBtn');
+            log('✅ Atomization complete! Processed ' + result.pointsCount + ' points', 'success');
+          })
+          .withFailureHandler(function(error) {
+            hideLoader('atomizeBtn');
+            log('❌ Atomization failed: ' + error, 'error');
+          })
+          .runMarkschemeAtomization(currentExam);
+      }
+      
+      // Run Student Work OCR with human verification
+      function runStudentOcr() {
+        if (!currentExam) return;
+        
+        log('🚀 Starting Student Work OCR pipeline...', 'info');
+        showLoader('ocrBtn');
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            hideLoader('ocrBtn');
+            
+            if (result.requiresReview) {
+              log('⏸️  OCR complete. ' + result.count + ' pages need human review.', 'warn');
+              ocrReviewQueue = result.pages;
+              showNextOcrReview();
+            } else {
+              log('✅ OCR pipeline complete! Processed ' + result.count + ' pages', 'success');
+            }
+          })
+          .withFailureHandler(function(error) {
+            hideLoader('ocrBtn');
+            log('❌ OCR failed: ' + error, 'error');
+          })
+          .runStudentWorkOcr(currentExam);
+      }
+      
+      // Show OCR review modal for next page
+      function showNextOcrReview() {
+        if (ocrReviewQueue.length === 0) {
+          log('✅ All OCR reviews complete!', 'success');
+          currentOcrReview = null;
+          return;
+        }
+        
+        currentOcrReview = ocrReviewQueue.shift();
+        
+        document.getElementById('ocrImagePreview').src = currentOcrReview.imageUrl;
+        document.getElementById('ocrTextArea').value = currentOcrReview.text;
+        document.getElementById('ocrModal').style.display = 'block';
+        
+        log('📝 Please review OCR for page ' + currentOcrReview.pageNum + ' of ' + currentOcrReview.studentName, 'info');
+      }
+      
+      // Approve OCR text and move to next
+      function approveOcrText() {
+        if (!currentOcrReview) return;
+        
+        const correctedText = document.getElementById('ocrTextArea').value;
+        
+        log('💾 Saving corrected OCR for page ' + currentOcrReview.pageNum + '...', 'info');
+        
+        google.script.run
+          .withSuccessHandler(function() {
+            log('✅ OCR saved for page ' + currentOcrReview.pageNum, 'success');
+            closeOcrModal();
+            showNextOcrReview();
+          })
+          .withFailureHandler(function(error) {
+            log('❌ Failed to save OCR: ' + error, 'error');
+          })
+          .saveOcrCorrection(currentOcrReview.id, correctedText);
+      }
+      
+      // Close OCR modal
+      function closeOcrModal() {
+        document.getElementById('ocrModal').style.display = 'none';
+      }
+      
+      // Run Student Response Grader
+      function runGrader() {
+        if (!currentExam) return;
+        
+        log('🚀 Starting Student Response Grader...', 'info');
+        showLoader('graderBtn');
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            hideLoader('graderBtn');
+            log('✅ Grading complete! Processed ' + result.studentCount + ' students', 'success');
+            log('Average score: ' + result.averageScore.toFixed(1) + '%', 'info');
+          })
+          .withFailureHandler(function(error) {
+            hideLoader('graderBtn');
+            log('❌ Grading failed: ' + error, 'error');
+          })
+          .runStudentGrading(currentExam);
+      }
+      
+      // Logging utility
+      function log(message, type = 'info') {
+        const container = document.getElementById('logContainer');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry log-' + type;
+        entry.textContent = new Date().toLocaleTimeString() + ' - ' + message;
+        container.appendChild(entry);
+        container.scrollTop = container.scrollHeight;
+      }
+      
+      // Loader utilities
+      function showLoader(btnId) {
+        const btn = document.getElementById(btnId);
+        btn.disabled = true;
+        btn.innerHTML += '<span class="loader"></span>';
+      }
+      
+      function hideLoader(btnId) {
+        const btn = document.getElementById(btnId);
+        btn.disabled = false;
+        const loader = btn.querySelector('.loader');
+        if (loader) loader.remove();
+      }
+    </script>
+  </body>
+</html>

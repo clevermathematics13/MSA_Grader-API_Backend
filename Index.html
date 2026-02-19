@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script>
+      window.MathJax = {
+        tex: {
+          displayMath: [['$$', '$$'], ['\\[', '\\]']],
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        },
+        chtml: {
+          displayAlign: 'left'
+        }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+      body { font-family: sans-serif; margin: 20px; background-color: #f4f4f9; }
+      h1, h3 { color: #333; }
+      h1 { position: relative; }
+      .nav-link { float: right; background-color: #667eea; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none; font-size: 14px; margin-top: 5px; transition: background-color 0.3s; }
+      .nav-link:hover { background-color: #5568d3; }
+      #controls, #status-container, #modal { padding: 15px; border: 1px solid #ccc; border-radius: 8px; margin-bottom: 15px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+      #status { min-height: 100px; background-color: #272822; color: #f8f8f2; padding: 10px; border-radius: 5px; overflow-y: auto; max-height: 300px; font-family: monospace; }
+      .log-entry { padding: 3px 5px; border-bottom: 1px solid #444; }
+      .log-error { color: #ff6b6b; }
+      .log-success { color: #a6e22e; }
+      .log-warn { color: #e6db74; }
+      .modal-backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); z-index: 100; }
+      #modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 700px; z-index: 101; }
+      #compare-modal { padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: fixed; top: 5%; bottom: 5%; left: 2.5%; right: 2.5%; width: auto; max-width: none; transform: none; z-index: 101; display: flex; flex-direction: column; }
+      #compare-modal > div:first-of-type { flex: 1; overflow: hidden; }
+      #ocr-textarea { width: 98%; height: 300px; margin-top: 10px; font-family: monospace; }
+      button { padding: 10px 15px; cursor: pointer; border: none; border-radius: 5px; font-size: 14px; }
+      #run-batch-btn { background-color: #4CAF50; color: white; }
+      #compare-btn { background-color: #2196F3; color: white; }
+      button:disabled { background-color: #aaa; cursor: not-allowed; }
+      #run-batch-btn:disabled { background-color: #aaa; }
+      #submit-correction-btn { background-color: #008CBA; color: white; }
+      #skip-btn { background-color: #f44336; color: white; margin-left: 10px; }
+      
+      /* Student OCR Modal Styles */
+      #student-ocr-modal { padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 4px 8px rgba(0,0,0,0.2); position: fixed; top: 5%; bottom: 5%; left: 5%; right: 5%; width: auto; max-width: none; transform: none; z-index: 101; display: flex; flex-direction: column; }
+      .student-ocr-content { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+      .student-ocr-sections { display: flex; gap: 20px; flex: 1; min-height: 0; }
+      .student-ocr-section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+      .student-ocr-section h4 { margin-top: 0; }
+      .image-preview-container { flex: 1; overflow: auto; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; display: flex; align-items: center; justify-content: center; min-height: 200px; }
+      .image-preview-container img { max-width: 100%; max-height: 100%; object-fit: contain; }
+      #student-ocr-textarea { width: 100%; flex: 1; font-family: 'Courier New', monospace; font-size: 13px; resize: none; }
+      .ocr-meta { font-size: 12px; color: #666; margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 4px; }
+      .confidence-indicator { display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
+      .confidence-high { background-color: #d4edda; color: #155724; }
+      .confidence-medium { background-color: #fff3cd; color: #856404; }
+      .confidence-low { background-color: #f8d7da; color: #721c24; }
+      
+      #student-ocr-rendered {
+        width: 100%;
+        flex: 1;
+        overflow: auto;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        background: white;
+        font-size: 16px;
+        line-height: 2.8;
+        display: none;
+      }
+      
+      #student-ocr-rendered .MathJax {
+        margin: 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>MSA Validation & Repair <a href="?ui=exam" class="nav-link">📊 Exam Management</a></h1>
+    
+    <div id="controls">
+      <h3>Markscheme Processing</h3>
+      <button id="process-doc-btn">Process Document</button>
+      <button id="compare-btn" style="margin-left: 10px;">Compare Markscheme</button>
+    </div>
+    
+    <div id="controls">
+      <h3>Student Work OCR Test</h3>
+      <p style="margin: 5px 0; color: #666; font-size: 13px;">Test OCR on a single student work image (single-question test case)</p>
+      <button id="test-student-ocr-btn">Test Student Work OCR</button>
+    </div>
+
+    <div id="status-container">
+      <h3>Status Log</h3>
+      <div id="status"></div>
+    </div>
+
+    <div id="modal-backdrop" class="modal-backdrop">
+      <div id="modal">
+        <h3 id="modal-title">Human Review Required</h3>
+        <p>A score discrepancy was found for document: <strong id="modal-doc-title"></strong></p>
+        <ul>
+          <li><strong>Official Total:</strong> <span id="modal-official-total"></span></li>
+          <li><strong>Calculated Total:</strong> <span id="modal-calculated-total"></span></li>
+          <li><a id="modal-preview-link" href="#" target="_blank">Open Output Folder</a></li>
+        </ul>
+        <p>The OCR text below may be incorrect. Please edit it to match the source document and then submit your correction.</p>
+        <textarea id="ocr-textarea"></textarea>
+        <br><br>
+        <button id="submit-correction-btn">Submit Correction & Re-process</button>
+        <button id="skip-btn">Skip This Document</button>
+      </div>
+    </div>
+
+    <div id="compare-modal-backdrop" class="modal-backdrop">
+      <div id="compare-modal">
+        <h3 id="compare-modal-title">Compare Markscheme</h3>
+        <div style="display: flex; flex: 1; overflow: hidden;">
+          <div style="flex: 1; margin-right: 10px; display: flex; flex-direction: column;">
+            <h4>Original Google Doc</h4>
+            <iframe id="compare-iframe-left" style="width: 100%; flex: 1; border: 1px solid #ccc;"></iframe>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h4 id="right-pane-title">Rendered OCR Preview</h4>
+              <button id="toggle-view-btn" style="display: none; margin-bottom: 5px;">Show Structured View</button>
+            </div>
+            <div style="flex: 1; position: relative;">
+              <iframe id="compare-iframe-right" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 1px solid #ccc;"></iframe>
+              <iframe id="structured-preview-frame" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 1px solid #ccc; display: none;"></iframe>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 10px;">
+          <button id="close-compare-btn">Close</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Student OCR Test Modal -->
+    <div id="student-ocr-modal-backdrop" class="modal-backdrop">
+      <div id="student-ocr-modal">
+        <h3>Test Student Work OCR</h3>
+        <div class="student-ocr-content">
+          <div class="student-ocr-sections">
+            <div class="student-ocr-section">
+              <h4>Original Image</h4>
+              <div class="image-preview-container">
+                <img id="student-work-image" src="" alt="Student work will appear here">
+              </div>
+            </div>
+            <div class="student-ocr-section">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="margin: 0;">OCR Result</h4>
+                <button id="toggle-ocr-view-btn" style="padding: 5px 10px; font-size: 12px; background-color: #667eea; color: white;">Show Rendered</button>
+              </div>
+              <textarea id="student-ocr-textarea" placeholder="OCR text will appear here..." style="display: block;"></textarea>
+              <div id="student-ocr-rendered" style="display: none; flex: 1; overflow: auto; border: 1px solid #ddd; border-radius: 4px; padding: 15px; background: white; font-size: 14px; line-height: 1.6;"></div>
+              <div class="ocr-meta">
+                <strong>Confidence:</strong> <span id="ocr-confidence" class="confidence-indicator">-</span><br>
+                <strong>Math Detected:</strong> <span id="ocr-math-detected">-</span><br>
+                <strong>Processing Time:</strong> <span id="ocr-processing-time">-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
+          <button id="save-student-ocr-btn" style="background-color: #28a745; color: white;">Save Corrected OCR</button>
+          <button id="close-student-ocr-btn" style="background-color: #6c757d; color: white; margin-left: 10px;">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let currentDoc = null;
+      let reviewData = null;
+      let currentStudentOcrData = null;
+
+      window.addEventListener('load', function() {
+        // Get the web app URL from the server for Exam Management link
+        google.script.run
+          .withSuccessHandler(function(url) {
+            const examLink = document.querySelector('a.nav-link');
+            if (examLink) {
+              examLink.href = url; // Production URL defaults to Exam UI
+            }
+          })
+          .withFailureHandler(function(error) {
+            console.error('Failed to get web app URL:', error);
+          })
+          .getWebAppUrl();
+        
+        log('Ready. Enter a document code to begin.');
+      });
+
+      document.getElementById('process-doc-btn').addEventListener('click', processSingleByPrompt);
+      document.getElementById('compare-btn').addEventListener('click', showComparePrompt);
+      document.getElementById('submit-correction-btn').addEventListener('click', submitCorrection);
+      document.getElementById('skip-btn').addEventListener('click', skipAndCloseModal);
+      document.getElementById('close-compare-btn').addEventListener('click', () => { document.getElementById('compare-modal-backdrop').style.display = 'none'; });
+      document.getElementById('test-student-ocr-btn').addEventListener('click', testStudentOcr);
+      document.getElementById('close-student-ocr-btn').addEventListener('click', () => { document.getElementById('student-ocr-modal-backdrop').style.display = 'none'; });
+      document.getElementById('save-student-ocr-btn').addEventListener('click', saveStudentOcrCorrection);
+
+      function log(message, type = '') {
+        const statusDiv = document.getElementById('status');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry ' + (type ? 'log-' + type : '');
+        entry.textContent = new Date().toLocaleTimeString() + ': ' + message;
+        statusDiv.appendChild(entry);
+        statusDiv.scrollTop = statusDiv.scrollHeight;
+      }
+
+      function triggerProcessing(questionTitle) {
+        log(`Processing: ${questionTitle}...`);
+        document.getElementById('process-doc-btn').disabled = true;
+        document.getElementById('compare-btn').disabled = true;
+
+        currentDoc = { title: questionTitle };
+
+        google.script.run
+          .withSuccessHandler(handleProcessResult)
+          .withFailureHandler(err => {
+            log(`Error processing ${questionTitle}: ${err.message}`, 'error');
+            document.getElementById('process-doc-btn').disabled = false;
+            document.getElementById('compare-btn').disabled = false;
+          })
+          .processSingleDocByTitle(questionTitle);
+      }
+
+      function processSingleByPrompt() {
+        const questionTitle = prompt("Please enter the question code (title) to process:", "14M.2.AHL.TZ2.H_1");
+        if (!questionTitle) return;
+        triggerProcessing(questionTitle);
+      }
+
+      function handleProcessResult(result) {
+        document.getElementById('process-doc-btn').disabled = false;
+        document.getElementById('compare-btn').disabled = false;
+
+        if (result.status === 'NEEDS_REVIEW') {
+          log(`Discrepancy found for ${result.doc_title}. Awaiting human review...`, 'warn');
+          reviewData = result;
+          document.getElementById('modal-doc-title').textContent = `${result.doc_title} (${result.doc_id})`;
+          document.getElementById('modal-official-total').textContent = result.officialTotal;
+          document.getElementById('modal-calculated-total').textContent = result.calculatedTotal;
+          document.getElementById('modal-preview-link').href = result.folderUrl;
+          document.getElementById('ocr-textarea').value = result.ocrText;
+          document.getElementById('modal-backdrop').style.display = 'block';
+        } else if (result.status === 'SUCCESS') {
+          log(`Successfully processed ${result.doc_title}. Totals reconciled.`, 'success');
+        }
+      }
+
+      function submitCorrection() {
+        if (!reviewData) return;
+        const correctedText = document.getElementById('ocr-textarea').value;
+        log(`Submitting correction for ${reviewData.doc_title}...`);
+        document.getElementById('modal-backdrop').style.display = 'none';
+
+        document.getElementById('process-doc-btn').disabled = true;
+        document.getElementById('compare-btn').disabled = true;
+
+        google.script.run
+          .withSuccessHandler(handleProcessResult)
+          .withFailureHandler(err => {
+            log(`Error re-processing ${reviewData.doc_title}: ${err.message}`, 'error');
+            document.getElementById('process-doc-btn').disabled = false;
+            document.getElementById('compare-btn').disabled = false;
+          }).reprocessWithCorrection(reviewData.doc_id, correctedText, reviewData.ocrPages);
+      }
+
+      function skipAndCloseModal() {
+        log(`Skipping ${currentDoc.title}.`);
+        document.getElementById('modal-backdrop').style.display = 'none';
+      }
+
+      function showComparePrompt() {
+        const questionTitle = prompt("Please enter the question code (title) to compare:", "14M.2.AHL.TZ2.H_1");
+        if (!questionTitle) return;
+
+        log(`Fetching preview data for ${questionTitle}...`);
+        google.script.run.withSuccessHandler(data => {
+          if (data.status === 'SUCCESS') {
+            document.getElementById('compare-modal-title').textContent = `Compare: ${questionTitle}`;
+            // Add rm=minimal parameter to hide document outline/tabs
+            const docUrl = data.sourceDocUrl + (data.sourceDocUrl.includes('?') ? '&' : '?') + 'rm=minimal';
+            document.getElementById('compare-iframe-left').src = docUrl;
+
+            // --- DUAL PREVIEW LOGIC ---
+            const previewFrame = document.getElementById('compare-iframe-right');
+            const structuredFrame = document.getElementById('structured-preview-frame');
+            const toggleBtn = document.getElementById('toggle-view-btn');
+            const rightPaneTitle = document.getElementById('right-pane-title');
+
+            // Always populate the original preview
+            previewFrame.srcdoc = data.previewHtml;
+
+            if (data.structuredPreviewHtml) {
+              // If structured view exists, enable toggling
+              structuredFrame.srcdoc = data.structuredPreviewHtml;
+              toggleBtn.style.display = 'inline-block';
+              
+              // Reset to default view state
+              previewFrame.style.display = 'block';
+              structuredFrame.style.display = 'none';
+              toggleBtn.textContent = 'Show Structured View';
+              rightPaneTitle.textContent = 'Rendered OCR Preview';
+
+              toggleBtn.onclick = () => { // Use onclick to avoid adding multiple listeners
+                const isStructuredView = structuredFrame.style.display !== 'none';
+                if (isStructuredView) {
+                  structuredFrame.style.display = 'none';
+                  previewFrame.style.display = 'block';
+                  toggleBtn.textContent = 'Show Structured View';
+                  rightPaneTitle.textContent = 'Rendered OCR Preview';
+                } else {
+                  structuredFrame.style.display = 'block';
+                  previewFrame.style.display = 'none';
+                  toggleBtn.textContent = 'Show Original View';
+                  rightPaneTitle.textContent = 'Structured (Requirement/Mark) View';
+                }
+              };
+            } else {
+              // If no structured view, just show the original and hide the button
+              toggleBtn.style.display = 'none';
+            }
+            // --- END DUAL PREVIEW LOGIC ---
+
+            document.getElementById('compare-modal-backdrop').style.display = 'block';
+          } else if (data.status === 'NOT_PROCESSED') {
+            log(data.message, 'warn');
+            if (confirm(data.message + "\n\nWould you like to process it now?")) {
+              triggerProcessing(data.title);
+            }
+          }
+        }).withFailureHandler(err => {
+          log(`Error fetching preview data: ${err.message}`, 'error');
+          alert(`Error fetching preview data: ${err.message}`);
+        }).getPreviewDataByTitle(questionTitle);
+      }
+      
+      // Student OCR Test Functions
+      function testStudentOcr() {
+        const fileId = prompt("Enter the Google Drive File ID of a student work image:", "");
+        if (!fileId) return;
+        
+        log('🔍 Starting OCR test on student work...', 'info');
+        document.getElementById('test-student-ocr-btn').disabled = true;
+        
+        google.script.run
+          .withSuccessHandler(handleStudentOcrResult)
+          .withFailureHandler(err => {
+            log(`❌ OCR test failed: ${err.message}`, 'error');
+            document.getElementById('test-student-ocr-btn').disabled = false;
+            alert(`Error: ${err.message}`);
+          })
+          .testStudentWorkOcr(fileId);
+      }
+      
+      function handleStudentOcrResult(result) {
+        document.getElementById('test-student-ocr-btn').disabled = false;
+        
+        if (result.status === 'success') {
+          currentStudentOcrData = result;
+          
+          // Populate the modal
+          document.getElementById('student-work-image').src = result.imageUrl;
+          document.getElementById('student-ocr-textarea').value = result.ocrText;
+          
+          // Set confidence indicator
+          const confidenceSpan = document.getElementById('ocr-confidence');
+          const confidence = Math.round(result.confidence * 100);
+          confidenceSpan.textContent = confidence + '%';
+          
+          if (confidence >= 85) {
+            confidenceSpan.className = 'confidence-indicator confidence-high';
+          } else if (confidence >= 70) {
+            confidenceSpan.className = 'confidence-indicator confidence-medium';
+          } else {
+            confidenceSpan.className = 'confidence-indicator confidence-low';
+          }
+          
+          document.getElementById('ocr-math-detected').textContent = result.mathDetected ? 'Yes' : 'No';
+          document.getElementById('ocr-processing-time').textContent = result.processingTime + ' ms';
+          
+          // Setup toggle between raw and rendered views
+          const toggleBtn = document.getElementById('toggle-ocr-view-btn');
+          const textarea = document.getElementById('student-ocr-textarea');
+          const renderedDiv = document.getElementById('student-ocr-rendered');
+          
+          let isRendered = false;
+          
+          toggleBtn.onclick = () => {
+            if (isRendered) {
+              // Show raw
+              textarea.style.display = 'block';
+              renderedDiv.style.display = 'none';
+              toggleBtn.textContent = 'Show Rendered';
+              isRendered = false;
+            } else {
+              // Show rendered - wrap in display style for proper summation rendering
+              const rawText = textarea.value;
+              // Add displaystyle to force summation limits above/below
+              // Handle inline math $...$ by adding \displaystyle inside
+              const displayText = rawText.replace(/\$(?!\$)([^$]+)\$/g, (match, content) => {
+                return `$\\displaystyle ${content}$`;
+              });
+              renderedDiv.innerHTML = displayText;
+              textarea.style.display = 'none';
+              renderedDiv.style.display = 'block';
+              toggleBtn.textContent = 'Show Raw';
+              isRendered = true;
+              
+              // Trigger MathJax to render the LaTeX
+              if (window.MathJax) {
+                MathJax.typesetPromise([renderedDiv]).catch((err) => console.error('MathJax error:', err));
+              }
+            }
+          };
+          
+          // Show the modal
+          document.getElementById('student-ocr-modal-backdrop').style.display = 'block';
+          
+          log(`✅ OCR complete. Confidence: ${confidence}%`, confidence >= 85 ? 'success' : 'warn');
+        } else {
+          log(`❌ OCR failed: ${result.message}`, 'error');
+        }
+      }
+      
+      function saveStudentOcrCorrection() {
+        if (!currentStudentOcrData) return;
+        
+        const correctedText = document.getElementById('student-ocr-textarea').value;
+        log('💾 Saving corrected OCR text...', 'info');
+        
+        google.script.run
+          .withSuccessHandler(() => {
+            log('✅ Corrected OCR saved successfully', 'success');
+            document.getElementById('student-ocr-modal-backdrop').style.display = 'none';
+          })
+          .withFailureHandler(err => {
+            log(`❌ Failed to save: ${err.message}`, 'error');
+            alert(`Error saving: ${err.message}`);
+          })
+          .saveStudentOcrCorrection(currentStudentOcrData.fileId, correctedText);
+      }
+    </script>
+  </body>
+</html>
