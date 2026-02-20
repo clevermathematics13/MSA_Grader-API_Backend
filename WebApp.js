@@ -173,13 +173,44 @@ function testStudentWorkOcr(fileId, options = {}) {
     
     const t0 = Date.now();
     
-    // Get the image blob
-    const imageBlob = file.getBlob();
+    // Use the Mathpix OCR function on the ORIGINAL file (TIFF, PNG, JPG, etc.)
+    const cfg = msaGetConfig_();
     
-    // Use the updated performOcrOnImage function which includes marker detection
-    const ocrResult = performOcrOnImage(imageBlob, fileId, {
-      detectMarkers: options.detectMarkers !== false  // Default to true
+    // First pass: detect markers by running OCR with geometry data
+    const detectionResult = msaMathpixOcrFromDriveImage_(fileId, cfg, { 
+      include_line_data: true,
+      include_geometry: true 
     });
+    
+    // Try to detect corner markers in the OCR result
+    let cropInfo = null;
+    let markersDetected = false;
+    let ocrResult = detectionResult;
+    
+    if (options.detectMarkers !== false) {
+      const markers = findCornerMarkersInOcrResult(detectionResult);
+      if (markers.length === 4) {
+        cropInfo = calculateBoundingRectFromMarkers(markers);
+        markersDetected = true;
+        msaLog_(`Markers detected at: TL(${markers[0].x},${markers[0].y}), TR(${markers[1].x},${markers[1].y}), BL(${markers[2].x},${markers[2].y}), BR(${markers[3].x},${markers[3].y})`);
+        msaLog_(`Re-running OCR on cropped region: (${cropInfo.x1},${cropInfo.y1}) to (${cropInfo.x2},${cropInfo.y2})`);
+        
+        // Re-run OCR with region parameter to only process the answer box area
+        ocrResult = msaMathpixOcrFromDriveImage_(fileId, cfg, {
+          include_line_data: true,
+          region: {
+            top_left_x: cropInfo.x1,
+            top_left_y: cropInfo.y1,
+            width: cropInfo.width,
+            height: cropInfo.height
+          }
+        });
+        
+        msaLog_('OCR complete on cropped region');
+      } else {
+        msaLog_(`Found ${markers.length} markers (need 4), using full image OCR`);
+      }
+    }
     
     const processingTime = Date.now() - t0;
     
@@ -212,7 +243,7 @@ function testStudentWorkOcr(fileId, options = {}) {
     let confidence = ocrResult.confidence || 0.9; // Default if not provided
     
     // Detect if math is present
-    const mathDetected = ocrResult.mathDetected || false;
+    const mathDetected = (ocrResult.text || '').includes('\\') || (ocrResult.latex_styled || '').includes('\\');
     
     return {
       status: 'success',
@@ -221,17 +252,16 @@ function testStudentWorkOcr(fileId, options = {}) {
       imageUrl: imageDataUrl,
       isTiff: (mimeType === 'image/tiff' || mimeType === 'image/tif'),
       ocrText: ocrResult.text || '',
-      latexStyled: ocrResult.latexStyled || '',
+      latexStyled: ocrResult.latex_styled || '',
       confidence: confidence,
       mathDetected: mathDetected,
       processingTime: processingTime,
-      cropInfo: ocrResult.cropInfo || null,  // Include crop information if markers detected
-      markersDetected: ocrResult.cropInfo ? true : false,
+      cropInfo: cropInfo,  // Include crop information if markers detected
+      markersDetected: markersDetected,
       metadata: {
-        width: ocrResult.width || null,
-        height: ocrResult.height || null,
-        originalWidth: ocrResult.rawResult?.image_width || null,
-        originalHeight: ocrResult.rawResult?.image_height || null
+        width: ocrResult.image_width || null,
+        height: ocrResult.image_height || null,
+        lineCount: (ocrResult.line_data || []).length
       }
     };
   } catch (e) {
@@ -286,4 +316,85 @@ function saveStudentOcrCorrection(fileId, correctedText) {
     msaErr_(`Error saving OCR correction: ${e.message}`);
     throw new Error(`Failed to save correction: ${e.message}`);
   }
+}
+
+/**
+ * Find corner markers in OCR detection result
+ * @param {object} ocrResult The OCR detection result
+ * @returns {Array} Array of marker positions {x, y, corner}
+ */
+function findCornerMarkersInOcrResult(ocrResult) {
+  const markers = [];
+  
+  // Look through line data or detected regions for markers
+  // The markers could be detected as small QR codes, images, or geometric shapes
+  if (ocrResult.line_data && Array.isArray(ocrResult.line_data)) {
+    ocrResult.line_data.forEach(line => {
+      if (line.type === 'image' || line.cnt_type === 'image') {
+        // Check if this image region is small enough to be a marker
+        const bbox = line.bbox || line.bounding_box;
+        if (bbox) {
+          const width = bbox[2] - bbox[0];
+          const height = bbox[3] - bbox[1];
+          
+          // Markers should be small square regions (adjust threshold as needed)
+          if (width < 100 && height < 100 && Math.abs(width - height) < 20) {
+            markers.push({
+              x: (bbox[0] + bbox[2]) / 2,  // Center X
+              y: (bbox[1] + bbox[3]) / 2,  // Center Y
+              bbox: bbox,
+              width: width,
+              height: height
+            });
+          }
+        }
+      }
+    });
+  }
+  
+  // Classify markers by corner position if we found 4
+  if (markers.length === 4) {
+    // Sort to identify corners: top-left, top-right, bottom-left, bottom-right
+    markers.sort(function(a, b) {
+      if (Math.abs(a.y - b.y) < 50) {
+        return a.x - b.x;  // Same row, sort by x
+      }
+      return a.y - b.y;  // Different rows, sort by y
+    });
+    
+    // Assign corner labels
+    const topTwo = markers.slice(0, 2).sort(function(a, b) { return a.x - b.x; });
+    const bottomTwo = markers.slice(2, 4).sort(function(a, b) { return a.x - b.x; });
+    
+    topTwo[0].corner = 'top-left';
+    topTwo[1].corner = 'top-right';
+    bottomTwo[0].corner = 'bottom-left';
+    bottomTwo[1].corner = 'bottom-right';
+  }
+  
+  return markers;
+}
+
+/**
+ * Calculate bounding rectangle from corner markers
+ * @param {Array} markers Array of 4 marker objects
+ * @returns {object} Bounds {x1, y1, x2, y2, width, height}
+ */
+function calculateBoundingRectFromMarkers(markers) {
+  const xs = markers.map(function(m) { return m.x; });
+  const ys = markers.map(function(m) { return m.y; });
+  
+  const x1 = Math.min.apply(Math, xs);
+  const y1 = Math.min.apply(Math, ys);
+  const x2 = Math.max.apply(Math, xs);
+  const y2 = Math.max.apply(Math, ys);
+  
+  return {
+    x1: Math.max(0, Math.round(x1)),
+    y1: Math.max(0, Math.round(y1)),
+    x2: Math.round(x2),
+    y2: Math.round(y2),
+    width: Math.round(x2 - x1),
+    height: Math.round(y2 - y1)
+  };
 }
