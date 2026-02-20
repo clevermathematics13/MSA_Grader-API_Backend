@@ -346,82 +346,94 @@ function saveStudentOcrCorrection(fileId, correctedText) {
  * @returns {Array} Array of marker positions {x, y, corner}
  */
 function findCornerMarkersInOcrResult(ocrResult) {
-  const markers = [];
+  var markers = [];
   
-  // Look through line data for the cube icon markers
-  // These might be detected as text, images, or special characters
+  // Look for QR code text: TL, TR, BL, BR
   if (ocrResult.line_data && Array.isArray(ocrResult.line_data)) {
-    msaLog_(`Scanning ${ocrResult.line_data.length} lines for markers...`);
+    msaLog_('Scanning ' + ocrResult.line_data.length + ' lines for QR code markers...');
     
     ocrResult.line_data.forEach(function(line, idx) {
-      const bbox = line.bbox || line.bounding_box;
+      var bbox = line.bbox || line.bounding_box;
       if (!bbox || bbox.length < 4) return;
       
-      const width = bbox[2] - bbox[0];
-      const height = bbox[3] - bbox[1];
-      const text = (line.text || '').trim();
+      var width = bbox[2] - bbox[0];
+      var height = bbox[3] - bbox[1];
+      var text = (line.text || '').trim().toUpperCase();
       
-      // Log for debugging
-      if (idx < 10 || (width < 150 && height < 150)) {
-        msaLog_(`Line ${idx}: text="${text}", type=${line.type}, w=${width.toFixed(0)}, h=${height.toFixed(0)}, bbox=[${bbox.map(function(v){return v.toFixed(0)}).join(',')}]`);
+      // Look for QR code markers: exact match for TL, TR, BL, BR
+      var markerLabels = ['TL', 'TR', 'BL', 'BR'];
+      var foundLabel = null;
+      
+      for (var i = 0; i < markerLabels.length; i++) {
+        if (text === markerLabels[i]) {
+          foundLabel = markerLabels[i];
+          break;
+        }
       }
       
-      // Detect markers by various criteria:
-      // 1. Small square regions
-      // 2. Image type content
-      // 3. Special unicode characters that might represent the cube icon
-      const isSmallSquare = width < 150 && height < 150 && Math.abs(width - height) < 50;
-      const isImageType = line.type === 'image' || line.cnt_type === 'image';
-      const hasMarkerSymbol = text && (
-        text.includes('◻') || // Box symbols
-        text.includes('▢') ||
-        text.includes('☐') ||
-        text.includes('□') ||
-        text.match(/^\s*[▢□◻☐]\s*$/) // Just the box alone
-      );
+      // Also check if it's a small square image region (QR code without OCR text)
+      var isSmallSquare = width < 50 && height < 50 && Math.abs(width - height) < 20;
+      var isImageType = line.type === 'image' || line.cnt_type === 'image';
       
-      if ((isImageType && isSmallSquare) || hasMarkerSymbol) {
+      if (foundLabel || (isImageType && isSmallSquare)) {
+        var centerX = (bbox[0] + bbox[2]) / 2;
+        var centerY = (bbox[1] + bbox[3]) / 2;
+        
         markers.push({
-          x: (bbox[0] + bbox[2]) / 2,  // Center X
-          y: (bbox[1] + bbox[3]) / 2,  // Center Y
+          x: centerX,
+          y: centerY,
           bbox: bbox,
           width: width,
           height: height,
-          text: text,
-          reason: isImageType ? 'image' : 'symbol'
+          text: foundLabel || '',
+          detectedAs: foundLabel ? 'qr-text' : 'small-image'
         });
-        msaLog_(`Found potential marker ${markers.length}: x=${((bbox[0] + bbox[2]) / 2).toFixed(0)}, y=${((bbox[1] + bbox[3]) / 2).toFixed(0)}, reason=${isImageType ? 'image' : 'symbol'}`);
+        
+        msaLog_('Found marker: ' + (foundLabel || 'unknown') + ' at (' + centerX.toFixed(0) + ',' + centerY.toFixed(0) + '), detected as: ' + (foundLabel ? 'qr-text' : 'small-image'));
       }
     });
   }
   
-  msaLog_(`Found ${markers.length} potential markers`);
+  msaLog_('Found ' + markers.length + ' potential markers');
   
-  // Classify markers by corner position if we found 4
+  // If we found exactly 4 markers with labels, use them directly
   if (markers.length === 4) {
-    // Sort to identify corners: top-left, top-right, bottom-left, bottom-right
-    markers.sort(function(a, b) {
-      if (Math.abs(a.y - b.y) < 50) {
-        return a.x - b.x;  // Same row, sort by x
-      }
-      return a.y - b.y;  // Different rows, sort by y
+    // Try to match markers to corners by their labels
+    var labeledMarkers = {};
+    markers.forEach(function(m) {
+      if (m.text) labeledMarkers[m.text] = m;
     });
     
-    // Assign corner labels
-    const topTwo = markers.slice(0, 2).sort(function(a, b) { return a.x - b.x; });
-    const bottomTwo = markers.slice(2, 4).sort(function(a, b) { return a.x - b.x; });
-    
-    topTwo[0].corner = 'top-left';
-    topTwo[1].corner = 'top-right';
-    bottomTwo[0].corner = 'bottom-left';
-    bottomTwo[1].corner = 'bottom-right';
-    
-    msaLog_('Marker positions: TL=' + topTwo[0].x.toFixed(0) + ',' + topTwo[0].y.toFixed(0) + 
-           ' TR=' + topTwo[1].x.toFixed(0) + ',' + topTwo[1].y.toFixed(0) +
-           ' BL=' + bottomTwo[0].x.toFixed(0) + ',' + bottomTwo[0].y.toFixed(0) +
-           ' BR=' + bottomTwo[1].x.toFixed(0) + ',' + bottomTwo[1].y.toFixed(0));
-  } else if (markers.length > 0) {
-    msaLog_('Marker count mismatch. Found ' + markers.length + ' but need exactly 4');
+    // If all 4 have correct labels, assign corners based on labels
+    if (labeledMarkers.TL && labeledMarkers.TR && labeledMarkers.BL && labeledMarkers.BR) {
+      labeledMarkers.TL.corner = 'top-left';
+      labeledMarkers.TR.corner = 'top-right';
+      labeledMarkers.BL.corner = 'bottom-left';
+      labeledMarkers.BR.corner = 'bottom-right';
+      
+      markers = [labeledMarkers.TL, labeledMarkers.TR, labeledMarkers.BL, labeledMarkers.BR];
+      
+      msaLog_('QR markers identified by labels: TL(' + labeledMarkers.TL.x.toFixed(0) + ',' + labeledMarkers.TL.y.toFixed(0) + 
+             '), TR(' + labeledMarkers.TR.x.toFixed(0) + ',' + labeledMarkers.TR.y.toFixed(0) + 
+             '), BL(' + labeledMarkers.BL.x.toFixed(0) + ',' + labeledMarkers.BL.y.toFixed(0) + 
+             '), BR(' + labeledMarkers.BR.x.toFixed(0) + ',' + labeledMarkers.BR.y.toFixed(0) + ')');
+    } else {
+      // Fall back to position-based detection
+      markers.sort(function(a, b) {
+        if (Math.abs(a.y - b.y) < 50) return a.x - b.x;
+        return a.y - b.y;
+      });
+      
+      var topTwo = markers.slice(0, 2).sort(function(a, b) { return a.x - b.x; });
+      var bottomTwo = markers.slice(2, 4).sort(function(a, b) { return a.x - b.x; });
+      
+      topTwo[0].corner = 'top-left';
+      topTwo[1].corner = 'top-right';
+      bottomTwo[0].corner = 'bottom-left';
+      bottomTwo[1].corner = 'bottom-right';
+      
+      msaLog_('Markers classified by position');
+    }
   }
   
   return markers;
@@ -433,20 +445,30 @@ function findCornerMarkersInOcrResult(ocrResult) {
  * @returns {object} Bounds {x1, y1, x2, y2, width, height}
  */
 function calculateBoundingRectFromMarkers(markers) {
-  const xs = markers.map(function(m) { return m.x; });
-  const ys = markers.map(function(m) { return m.y; });
+  var xs = markers.map(function(m) { return m.x; });
+  var ys = markers.map(function(m) { return m.y; });
   
-  const x1 = Math.min.apply(Math, xs);
-  const y1 = Math.min.apply(Math, ys);
-  const x2 = Math.max.apply(Math, xs);
-  const y2 = Math.max.apply(Math, ys);
+  var minX = Math.min.apply(Math, xs);
+  var minY = Math.min.apply(Math, ys);
+  var maxX = Math.max.apply(Math, xs);
+  var maxY = Math.max.apply(Math, ys);
+  
+  // QR codes are OUTSIDE the corners, so we need to move inward
+  // Original positioning: marker is fSize + gap pixels away from corner
+  // fSize = 6pt, gap = 2pt, so total offset = 8pt
+  var offset = 8;
+  
+  var x1 = Math.round(minX + offset);
+  var y1 = Math.round(minY + offset);
+  var x2 = Math.round(maxX - offset);
+  var y2 = Math.round(maxY - offset);
   
   return {
-    x1: Math.max(0, Math.round(x1)),
-    y1: Math.max(0, Math.round(y1)),
-    x2: Math.round(x2),
-    y2: Math.round(y2),
-    width: Math.round(x2 - x1),
-    height: Math.round(y2 - y1)
+    x1: Math.max(0, x1),
+    y1: Math.max(0, y1),
+    x2: x2,
+    y2: y2,
+    width: x2 - x1,
+    height: y2 - y1
   };
 }
