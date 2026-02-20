@@ -157,6 +157,7 @@
               <div class="ocr-meta">
                 <strong>Confidence:</strong> <span id="ocr-confidence" class="confidence-indicator">-</span><br>
                 <strong>Math Detected:</strong> <span id="ocr-math-detected">-</span><br>
+                <strong>Markers Detected:</strong> <span id="ocr-markers-detected" style="font-weight: 500;">-</span><br>
                 <strong>Processing Time:</strong> <span id="ocr-processing-time">-</span>
               </div>
             </div>
@@ -362,8 +363,17 @@
         if (result.status === 'success') {
           currentStudentOcrData = result;
           
-          // Populate the modal
-          document.getElementById('student-work-image').src = result.imageUrl;
+          // Populate the modal - handle TIFF preview
+          const imgElement = document.getElementById('student-work-image');
+          if (result.imageUrl) {
+            imgElement.src = result.imageUrl;
+            imgElement.style.display = 'block';
+            imgElement.alt = result.isTiff ? 'TIFF preview (thumbnail)' : 'Student work';
+          } else {
+            imgElement.style.display = 'none';
+            imgElement.parentElement.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">⚠️ TIFF preview unavailable<br><small>OCR was performed on original TIFF file</small></div><img id="student-work-image" style="display:none;">';
+          }
+          
           document.getElementById('student-ocr-textarea').value = result.ocrText;
           
           // Set confidence indicator
@@ -382,6 +392,18 @@
           document.getElementById('ocr-math-detected').textContent = result.mathDetected ? 'Yes' : 'No';
           document.getElementById('ocr-processing-time').textContent = result.processingTime + ' ms';
           
+          // Display marker detection status
+          const markersSpan = document.getElementById('ocr-markers-detected');
+          if (result.markersDetected && result.cropInfo) {
+            markersSpan.textContent = '✓ Yes';
+            markersSpan.style.color = '#28a745';
+            markersSpan.title = `Cropped to region: ${result.cropInfo.width}x${result.cropInfo.height}px`;
+          } else {
+            markersSpan.textContent = '✗ No';
+            markersSpan.style.color = '#dc3545';
+            markersSpan.title = 'Full image was processed';
+          }
+          
           // Setup toggle between raw and rendered views
           const toggleBtn = document.getElementById('toggle-ocr-view-btn');
           const textarea = document.getElementById('student-ocr-textarea');
@@ -397,13 +419,10 @@
               toggleBtn.textContent = 'Show Rendered';
               isRendered = false;
             } else {
-              // Show rendered - wrap in display style for proper summation rendering
+              // Show rendered - force stacked summation limits (above/below sigma)
               const rawText = textarea.value;
-              // Add displaystyle to force summation limits above/below
-              // Handle inline math $...$ by adding \displaystyle inside
-              const displayText = rawText.replace(/\$(?!\$)([^$]+)\$/g, (match, content) => {
-                return `$\\displaystyle ${content}$`;
-              });
+              // Add \limits after every \sum to force stacked notation
+              let displayText = rawText.replace(/\\sum(?!\\limits)/g, '\\sum\\limits');
               renderedDiv.innerHTML = displayText;
               textarea.style.display = 'none';
               renderedDiv.style.display = 'block';

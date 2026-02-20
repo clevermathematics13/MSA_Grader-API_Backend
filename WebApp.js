@@ -158,9 +158,10 @@ function runBatchOnUnreconciled(limit) {
  * Test OCR on a single student work image (for MSA UI testing).
  * This provides a single-question test case for the full exam system workflow.
  * @param {string} fileId The Google Drive File ID of the student work image.
+ * @param {object} options Optional settings like {detectMarkers: true}
  * @returns {object} OCR result with image URL, text, confidence, etc.
  */
-function testStudentWorkOcr(fileId) {
+function testStudentWorkOcr(fileId, options = {}) {
   try {
     const file = DriveApp.getFileById(fileId);
     const mimeType = file.getMimeType();
@@ -172,37 +173,65 @@ function testStudentWorkOcr(fileId) {
     
     const t0 = Date.now();
     
-    // Use the Mathpix OCR function (reusing existing MSA infrastructure)
-    const cfg = msaGetConfig_();
-    const ocrResult = msaMathpixOcrFromDriveImage_(fileId, cfg, { include_line_data: true });
+    // Get the image blob
+    const imageBlob = file.getBlob();
+    
+    // Use the updated performOcrOnImage function which includes marker detection
+    const ocrResult = performOcrOnImage(imageBlob, fileId, {
+      detectMarkers: options.detectMarkers !== false  // Default to true
+    });
     
     const processingTime = Date.now() - t0;
     
-    // Get image as base64 data URL for preview (works without authentication issues)
-    const blob = file.getBlob();
-    const base64Image = Utilities.base64Encode(blob.getBytes());
-    const imageDataUrl = `data:${mimeType};base64,${base64Image}`;
+    // For preview, handle TIFF files specially since browsers don't support them
+    let imageDataUrl;
     
-    // Calculate confidence (Mathpix provides confidence data)
+    if (mimeType === 'image/tiff' || mimeType === 'image/tif') {
+      // TIFF files: Use Drive's thumbnail capability for preview
+      try {
+        const thumbnail = Drive.Files.get(fileId, { fields: 'thumbnailLink' });
+        if (thumbnail.thumbnailLink) {
+          // Use thumbnail URL (requires authentication but works in this context)
+          imageDataUrl = thumbnail.thumbnailLink.replace('=s220', '=s800'); // Larger thumbnail
+        } else {
+          // Fallback: indicate TIFF can't be previewed
+          imageDataUrl = null;
+        }
+      } catch (e) {
+        msaLog_('Could not get thumbnail for TIFF: ' + e.message);
+        imageDataUrl = null;
+      }
+    } else {
+      // For other image types (PNG, JPG, etc.), embed directly as base64
+      const blob = file.getBlob();
+      const base64Image = Utilities.base64Encode(blob.getBytes());
+      imageDataUrl = `data:${mimeType};base64,${base64Image}`;
+    }
+    
+    // Calculate confidence from OCR result
     let confidence = ocrResult.confidence || 0.9; // Default if not provided
     
     // Detect if math is present
-    const mathDetected = (ocrResult.text || '').includes('\\') || (ocrResult.latex_styled || '').includes('\\');
+    const mathDetected = ocrResult.mathDetected || false;
     
     return {
       status: 'success',
       fileId: fileId,
       fileName: file.getName(),
       imageUrl: imageDataUrl,
+      isTiff: (mimeType === 'image/tiff' || mimeType === 'image/tif'),
       ocrText: ocrResult.text || '',
-      latexStyled: ocrResult.latex_styled || '',
+      latexStyled: ocrResult.latexStyled || '',
       confidence: confidence,
       mathDetected: mathDetected,
       processingTime: processingTime,
+      cropInfo: ocrResult.cropInfo || null,  // Include crop information if markers detected
+      markersDetected: ocrResult.cropInfo ? true : false,
       metadata: {
-        width: ocrResult.image_width || null,
-        height: ocrResult.image_height || null,
-        lineCount: (ocrResult.line_data || []).length
+        width: ocrResult.width || null,
+        height: ocrResult.height || null,
+        originalWidth: ocrResult.rawResult?.image_width || null,
+        originalHeight: ocrResult.rawResult?.image_height || null
       }
     };
   } catch (e) {
