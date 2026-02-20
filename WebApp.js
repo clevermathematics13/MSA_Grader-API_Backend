@@ -176,39 +176,61 @@ function testStudentWorkOcr(fileId, options = {}) {
     // Use the Mathpix OCR function on the ORIGINAL file (TIFF, PNG, JPG, etc.)
     const cfg = msaGetConfig_();
     
-    // First pass: detect markers by running OCR with geometry data
-    const detectionResult = msaMathpixOcrFromDriveImage_(fileId, cfg, { 
-      include_line_data: true,
-      include_geometry: true 
-    });
-    
-    // Try to detect corner markers in the OCR result
     let cropInfo = null;
     let markersDetected = false;
-    let ocrResult = detectionResult;
+    let ocrResult;
     
-    if (options.detectMarkers !== false) {
-      const markers = findCornerMarkersInOcrResult(detectionResult);
-      if (markers.length === 4) {
-        cropInfo = calculateBoundingRectFromMarkers(markers);
-        markersDetected = true;
-        msaLog_(`Markers detected at: TL(${markers[0].x},${markers[0].y}), TR(${markers[1].x},${markers[1].y}), BL(${markers[2].x},${markers[2].y}), BR(${markers[3].x},${markers[3].y})`);
-        msaLog_(`Re-running OCR on cropped region: (${cropInfo.x1},${cropInfo.y1}) to (${cropInfo.x2},${cropInfo.y2})`);
-        
-        // Re-run OCR with region parameter to only process the answer box area
-        ocrResult = msaMathpixOcrFromDriveImage_(fileId, cfg, {
-          include_line_data: true,
-          region: {
-            top_left_x: cropInfo.x1,
-            top_left_y: cropInfo.y1,
-            width: cropInfo.width,
-            height: cropInfo.height
-          }
-        });
-        
-        msaLog_('OCR complete on cropped region');
-      } else {
-        msaLog_(`Found ${markers.length} markers (need 4), using full image OCR`);
+    // Check if manual crop region was provided
+    if (options.cropRegion) {
+      cropInfo = options.cropRegion;
+      markersDetected = true; // Manual region counts as "detected"
+      msaLog_('Using manually specified crop region: (' + cropInfo.x1 + ',' + cropInfo.y1 + ') to (' + cropInfo.x2 + ',' + cropInfo.y2 + ')');
+      
+      // Run OCR directly on the specified region
+      ocrResult = msaMathpixOcrFromDriveImage_(fileId, cfg, {
+        include_line_data: true,
+        region: {
+          top_left_x: cropInfo.x1,
+          top_left_y: cropInfo.y1,
+          width: cropInfo.width,
+          height: cropInfo.height
+        }
+      });
+      
+    } else {
+      // Auto-detect markers approach
+      // First pass: detect markers by running OCR with geometry data
+      const detectionResult = msaMathpixOcrFromDriveImage_(fileId, cfg, { 
+        include_line_data: true,
+        include_geometry: true 
+      });
+      
+      // Try to detect corner markers in the OCR result
+      ocrResult = detectionResult;
+      
+      if (options.detectMarkers !== false) {
+        const markers = findCornerMarkersInOcrResult(detectionResult);
+        if (markers.length === 4) {
+          cropInfo = calculateBoundingRectFromMarkers(markers);
+          markersDetected = true;
+          msaLog_('Markers detected at: TL(' + markers[0].x + ',' + markers[0].y + '), TR(' + markers[1].x + ',' + markers[1].y + '), BL(' + markers[2].x + ',' + markers[2].y + '), BR(' + markers[3].x + ',' + markers[3].y + ')');
+          msaLog_('Re-running OCR on cropped region: (' + cropInfo.x1 + ',' + cropInfo.y1 + ') to (' + cropInfo.x2 + ',' + cropInfo.y2 + ')');
+          
+          // Re-run OCR with region parameter to only process the answer box area
+          ocrResult = msaMathpixOcrFromDriveImage_(fileId, cfg, {
+            include_line_data: true,
+            region: {
+              top_left_x: cropInfo.x1,
+              top_left_y: cropInfo.y1,
+              width: cropInfo.width,
+              height: cropInfo.height
+            }
+          });
+          
+          msaLog_('OCR complete on cropped region');
+        } else {
+          msaLog_('Found ' + markers.length + ' markers (need 4), using full image OCR');
+        }
       }
     }
     
@@ -326,31 +348,54 @@ function saveStudentOcrCorrection(fileId, correctedText) {
 function findCornerMarkersInOcrResult(ocrResult) {
   const markers = [];
   
-  // Look through line data or detected regions for markers
-  // The markers could be detected as small QR codes, images, or geometric shapes
+  // Look through line data for the cube icon markers
+  // These might be detected as text, images, or special characters
   if (ocrResult.line_data && Array.isArray(ocrResult.line_data)) {
-    ocrResult.line_data.forEach(line => {
-      if (line.type === 'image' || line.cnt_type === 'image') {
-        // Check if this image region is small enough to be a marker
-        const bbox = line.bbox || line.bounding_box;
-        if (bbox) {
-          const width = bbox[2] - bbox[0];
-          const height = bbox[3] - bbox[1];
-          
-          // Markers should be small square regions (adjust threshold as needed)
-          if (width < 100 && height < 100 && Math.abs(width - height) < 20) {
-            markers.push({
-              x: (bbox[0] + bbox[2]) / 2,  // Center X
-              y: (bbox[1] + bbox[3]) / 2,  // Center Y
-              bbox: bbox,
-              width: width,
-              height: height
-            });
-          }
-        }
+    msaLog_(`Scanning ${ocrResult.line_data.length} lines for markers...`);
+    
+    ocrResult.line_data.forEach(function(line, idx) {
+      const bbox = line.bbox || line.bounding_box;
+      if (!bbox || bbox.length < 4) return;
+      
+      const width = bbox[2] - bbox[0];
+      const height = bbox[3] - bbox[1];
+      const text = (line.text || '').trim();
+      
+      // Log for debugging
+      if (idx < 10 || (width < 150 && height < 150)) {
+        msaLog_(`Line ${idx}: text="${text}", type=${line.type}, w=${width.toFixed(0)}, h=${height.toFixed(0)}, bbox=[${bbox.map(function(v){return v.toFixed(0)}).join(',')}]`);
+      }
+      
+      // Detect markers by various criteria:
+      // 1. Small square regions
+      // 2. Image type content
+      // 3. Special unicode characters that might represent the cube icon
+      const isSmallSquare = width < 150 && height < 150 && Math.abs(width - height) < 50;
+      const isImageType = line.type === 'image' || line.cnt_type === 'image';
+      const hasMarkerSymbol = text && (
+        text.includes('◻') || // Box symbols
+        text.includes('▢') ||
+        text.includes('☐') ||
+        text.includes('□') ||
+        text.match(/^\s*[▢□◻☐]\s*$/) // Just the box alone
+      );
+      
+      if ((isImageType && isSmallSquare) || hasMarkerSymbol) {
+        markers.push({
+          x: (bbox[0] + bbox[2]) / 2,  // Center X
+          y: (bbox[1] + bbox[3]) / 2,  // Center Y
+          bbox: bbox,
+          width: width,
+          height: height,
+          text: text,
+          reason: isImageType ? 'image' : 'symbol'
+        });
+        msaLog_(`Found potential marker ${markers.length}: x=${((bbox[0] + bbox[2]) / 2).toFixed(0)}, y=${((bbox[1] + bbox[3]) / 2).toFixed(0)}, reason=${isImageType ? 'image' : 'symbol'}`);
       }
     });
   }
+  
+  msaLog_(`Found ${markers.length} potential markers`);
   
   // Classify markers by corner position if we found 4
   if (markers.length === 4) {
@@ -370,6 +415,13 @@ function findCornerMarkersInOcrResult(ocrResult) {
     topTwo[1].corner = 'top-right';
     bottomTwo[0].corner = 'bottom-left';
     bottomTwo[1].corner = 'bottom-right';
+    
+    msaLog_('Marker positions: TL=' + topTwo[0].x.toFixed(0) + ',' + topTwo[0].y.toFixed(0) + 
+           ' TR=' + topTwo[1].x.toFixed(0) + ',' + topTwo[1].y.toFixed(0) +
+           ' BL=' + bottomTwo[0].x.toFixed(0) + ',' + bottomTwo[0].y.toFixed(0) +
+           ' BR=' + bottomTwo[1].x.toFixed(0) + ',' + bottomTwo[1].y.toFixed(0));
+  } else if (markers.length > 0) {
+    msaLog_('Marker count mismatch. Found ' + markers.length + ' but need exactly 4');
   }
   
   return markers;
