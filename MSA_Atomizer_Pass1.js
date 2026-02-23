@@ -125,7 +125,7 @@ function msaParsePointsFromLines_(lines, pageNum, skipMapByPart, warnings) {
     for (let i = 0; i < lines.length; i++) {
         let line = String(lines[i] || "");
 
-        const mPart = line.match(/^\s*((?:\(\s*[a-z]\s*\)|\(\s*[ivx]+\s*\)\s*)+)/i);
+        const mPart = line.match(/^\s*((?:\(\s*[a-z]\s*\)\s*|\(\s*[ivx]+\s*\)\s*)+)/i);
         if (mPart) {
             flushBuffer([], i);
             const rawPart = mPart[1].replace(/[\s\(\)]/g, "").toLowerCase();
