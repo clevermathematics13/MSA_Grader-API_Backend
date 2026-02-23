@@ -87,9 +87,14 @@ function gradeWithImpliedMarks(studentText, markschemePoints, options) {
     }
   });
 
-  // Third pass: Apply any learned rules from corrections database
-  msaLog_('[GRADING PASS 3] Applying learned rules...');
-  if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 3] Applying learned rules...');
+  // Third pass: Method selection — only the best method per part earns marks
+  msaLog_('[GRADING PASS 3] Selecting best method per part...');
+  if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 3] Selecting best method per part...');
+  selectBestMethodPerPart(results);
+
+  // Fourth pass: Apply any learned rules from corrections database
+  msaLog_('[GRADING PASS 4] Applying learned rules...');
+  if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 4] Applying learned rules...');
   if (options.enableLearning !== false) {
     applyLearnedRules(results, studentText, options.questionCode);
   }
@@ -188,6 +193,98 @@ function findContradiction(point, studentText) {
   }
   
   return null; // No contradiction found
+}
+
+/**
+ * For each part, pick the best-scoring method branch and exclude marks from other methods.
+ * Points with no branch (shared across all methods) are always kept.
+ * Points from the best method are kept. Points from other methods are marked excluded.
+ *
+ * IB convention: a student can only earn marks from ONE method per part.
+ * The method that earns the most marks is selected.
+ *
+ * @param {Array} results The grading results array (mutated in place).
+ */
+function selectBestMethodPerPart(results) {
+  // Group results by part
+  var partGroups = {};
+  results.forEach(function(res) {
+    var part = res.part || 'unknown';
+    if (!partGroups[part]) partGroups[part] = [];
+    partGroups[part].push(res);
+  });
+
+  for (var part in partGroups) {
+    var partResults = partGroups[part];
+
+    // Identify all method branches in this part
+    var methods = {};
+    var sharedResults = [];
+
+    partResults.forEach(function(res) {
+      var branch = res.branch || '';
+      if (branch.startsWith('METHOD')) {
+        if (!methods[branch]) methods[branch] = [];
+        methods[branch].push(res);
+      } else {
+        sharedResults.push(res);
+      }
+    });
+
+    var methodNames = Object.keys(methods);
+    if (methodNames.length <= 1) {
+      // 0 or 1 method — nothing to select
+      msaLog_('[METHOD SELECT] Part ' + part + ': ' + (methodNames.length === 0 ? 'no methods' : '1 method (' + methodNames[0] + ')') + ' — no selection needed');
+      if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[METHOD SELECT] Part ' + part + ': ' + (methodNames.length === 0 ? 'no methods' : '1 method (' + methodNames[0] + ')') + ' — no selection needed');
+      continue;
+    }
+
+    // Calculate awarded marks for each method
+    var methodScores = {};
+    methodNames.forEach(function(method) {
+      var score = 0;
+      methods[method].forEach(function(res) {
+        if (res.awarded) {
+          score += msaGetMarkValue_(res.marks || []);
+        }
+      });
+      methodScores[method] = score;
+    });
+
+    // Find the best method (highest awarded score; ties go to first method)
+    var bestMethod = methodNames[0];
+    var bestScore = methodScores[bestMethod];
+    methodNames.forEach(function(method) {
+      if (methodScores[method] > bestScore) {
+        bestScore = methodScores[method];
+        bestMethod = method;
+      }
+    });
+
+    msaLog_('[METHOD SELECT] Part ' + part + ': scores=' + JSON.stringify(methodScores) + ' → best=' + bestMethod + ' (' + bestScore + ' marks)');
+    if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[METHOD SELECT] Part ' + part + ': scores=' + JSON.stringify(methodScores) + ' → best=' + bestMethod + ' (' + bestScore + ' marks)');
+
+    // Mark non-best method results as excluded
+    methodNames.forEach(function(method) {
+      if (method !== bestMethod) {
+        methods[method].forEach(function(res) {
+          if (res.awarded) {
+            msaLog_('[METHOD SELECT] Excluding ' + res.point_id + ' (from ' + method + ', not best method)');
+            if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[METHOD SELECT] Excluding ' + res.point_id + ' (from ' + method + ', not best method)');
+          }
+          res.awarded = false;
+          res.excludedByMethod = true;
+          res.selectedMethod = bestMethod;
+        });
+      } else {
+        // Tag best method results
+        methods[method].forEach(function(res) {
+          res.excludedByMethod = false;
+          res.selectedMethod = bestMethod;
+        });
+      }
+    });
+  }
 }
 
 /**

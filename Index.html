@@ -177,6 +177,7 @@
       }
       .grading-table tr.awarded { background: #e8f5e9; }
       .grading-table tr.not-awarded { background: #ffebee; }
+      .grading-table tr.excluded-method { background: #f5f5f5; opacity: 0.5; }
       .grading-table tr.corrected { background: #fff9c4 !important; }
       .grading-table tr.implied-mark { border-left: 3px solid #9c27b0; }
       #student-rendered-view {
@@ -230,6 +231,24 @@
       .implied-badge.dimmed {
         background: #ce93d8;
         opacity: 0.7;
+      }
+      
+      /* Method badge */
+      .method-badge {
+        display: inline-block;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: bold;
+        background: #1976d2;
+        color: white;
+        margin-left: 3px;
+        vertical-align: middle;
+      }
+      .method-badge.dimmed {
+        background: #90caf9;
+        color: #666;
+        text-decoration: line-through;
       }
       
       /* Save corrections button */
@@ -884,14 +903,16 @@
             const status = res.awarded ? '✅' : '❌';
             const markStr = (res.marks || []).join('');
             const reqText = (res.requirement || '').substring(0, 60) + ((res.requirement || '').length > 60 ? '...' : '');
-            const rowClass = res.awarded ? 'awarded' : 'not-awarded';
+            const rowClass = res.awarded ? 'awarded' : (res.excludedByMethod ? 'excluded-method' : 'not-awarded');
             const impliedClass = res.isImplied ? ' implied-mark' : '';
             const part = res.part ? `(${res.part})` : '';
             const impliedBadge = res.awardedByImplication ? '<span class="implied-badge" title="Awarded by implication">IMP</span>' : 
                                  (res.isImplied ? '<span class="implied-badge dimmed" title="Implied mark (parenthesized)">(IMP)</span>' : '');
+            const methodBadge = res.branch && res.branch.startsWith('METHOD') ? 
+                                `<span class="method-badge${res.excludedByMethod ? ' dimmed' : ''}" title="${res.excludedByMethod ? 'Not selected (best: ' + (res.selectedMethod || '') + ')' : 'Selected method'}">${res.branch.replace('METHOD','M')}</span>` : '';
             
             html += `<tr class="${rowClass}${impliedClass}" data-point-idx="${idx}">`;
-            html += `<td>${status} ${part} ${impliedBadge}</td>`;
+            html += `<td>${status} ${part} ${impliedBadge} ${methodBadge}</td>`;
             html += `<td style="text-align: center;">${markStr}</td>`;
             html += `<td title="${(res.requirement || '').replace(/"/g, '&quot;')}">${reqText}</td>`;
             html += `<td style="text-align: center;">`;
