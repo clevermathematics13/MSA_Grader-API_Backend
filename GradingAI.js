@@ -11,8 +11,10 @@
  ********************************/
 
 // Spreadsheet ID for storing grading corrections and learned rules
-// This should be set to your grading rules spreadsheet or a new one
-const GRADING_AI_SPREADSHEET_ID = MSA_GRADING_RULES_SPREADSHEET_ID;
+// Uses a function to avoid load-order issues (GradingAI.js loads before MSA_Config.js)
+function getGradingAiSpreadsheetId_() {
+  return MSA_GRADING_RULES_SPREADSHEET_ID;
+}
 
 /**
  * Enhanced grading that handles implied marks and learning.
@@ -219,7 +221,7 @@ function shouldApplyRule(rule, result, studentText) {
  */
 function loadLearnedRules(questionCode) {
   try {
-    var ss = SpreadsheetApp.openById(GRADING_AI_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(getGradingAiSpreadsheetId_());
     var sheet = ss.getSheetByName('LearnedRules');
     
     if (!sheet) {
@@ -272,7 +274,7 @@ function loadLearnedRules(questionCode) {
  */
 function saveGradingCorrection(questionCode, pointId, originalDecision, correctedDecision, studentText, requirement, teacherNotes) {
   try {
-    var ss = SpreadsheetApp.openById(GRADING_AI_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(getGradingAiSpreadsheetId_());
     var sheet = ss.getSheetByName('GradingCorrections');
     
     // Create sheet if it doesn't exist
@@ -374,7 +376,7 @@ function analyzeForNewRule(questionCode, pointId, originalDecision, correctedDec
  */
 function saveProposedRule(questionCode, pointId, rule) {
   try {
-    var ss = SpreadsheetApp.openById(GRADING_AI_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(getGradingAiSpreadsheetId_());
     var sheet = ss.getSheetByName('LearnedRules');
     
     // Create sheet if it doesn't exist
@@ -437,7 +439,7 @@ function extractKeyNumbers(requirement) {
  */
 function getPendingRulesForReview() {
   try {
-    var ss = SpreadsheetApp.openById(GRADING_AI_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(getGradingAiSpreadsheetId_());
     var sheet = ss.getSheetByName('LearnedRules');
     
     if (!sheet) return [];
@@ -473,7 +475,7 @@ function getPendingRulesForReview() {
  */
 function reviewRule(rowIndex, approve) {
   try {
-    var ss = SpreadsheetApp.openById(GRADING_AI_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(getGradingAiSpreadsheetId_());
     var sheet = ss.getSheetByName('LearnedRules');
     
     if (!sheet) return { status: 'error', message: 'LearnedRules sheet not found' };
@@ -492,7 +494,7 @@ function reviewRule(rowIndex, approve) {
  */
 function getLearningStats() {
   try {
-    var ss = SpreadsheetApp.openById(GRADING_AI_SPREADSHEET_ID);
+    var ss = SpreadsheetApp.openById(getGradingAiSpreadsheetId_());
     var stats = {
       totalCorrections: 0,
       activeRules: 0,
