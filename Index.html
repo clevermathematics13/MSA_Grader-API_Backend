@@ -169,6 +169,16 @@
         text-align: left;
         border-bottom: 1px solid #eee;
       }
+      .grading-table td.req-cell {
+        font-size: 11px;
+        line-height: 1.4;
+        max-width: 250px;
+        overflow: hidden;
+        word-break: break-word;
+      }
+      .grading-table td.req-cell .MathJax {
+        font-size: 11px !important;
+      }
       .grading-table th {
         background: #f5f5f5;
         font-weight: 600;
@@ -902,7 +912,7 @@
           result.results.forEach((res, idx) => {
             const status = res.awarded ? '✅' : '❌';
             const markStr = (res.marks || []).join('');
-            const reqText = (res.requirement || '').substring(0, 60) + ((res.requirement || '').length > 60 ? '...' : '');
+            const reqText = res.requirement || '';
             const rowClass = res.awarded ? 'awarded' : (res.excludedByMethod ? 'excluded-method' : 'not-awarded');
             const impliedClass = res.isImplied ? ' implied-mark' : '';
             const part = res.part ? `(${res.part})` : '';
@@ -914,7 +924,7 @@
             html += `<tr class="${rowClass}${impliedClass}" data-point-idx="${idx}">`;
             html += `<td>${status} ${part} ${impliedBadge} ${methodBadge}</td>`;
             html += `<td style="text-align: center;">${markStr}</td>`;
-            html += `<td title="${(res.requirement || '').replace(/"/g, '&quot;')}">${reqText}</td>`;
+            html += `<td class="req-cell">${reqText}</td>`;
             html += `<td style="text-align: center;">`;
             html += `<button class="correction-btn ${res.awarded ? 'btn-deny' : 'btn-award'}" onclick="toggleMarkCorrection(${idx})" title="${res.awarded ? 'Remove this mark' : 'Award this mark'}">`;
             html += res.awarded ? '✗' : '✓';
@@ -941,6 +951,13 @@
           html += '</div>';
           
           pointsList.innerHTML = html;
+          
+          // Render LaTeX in the requirement cells
+          if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+            MathJax.typesetPromise([pointsList]).catch(function(err) {
+              console.warn('MathJax typeset error:', err);
+            });
+          }
           
           // Also update the small panel (for backwards compatibility)
           const panel = document.getElementById('grading-results-panel');
