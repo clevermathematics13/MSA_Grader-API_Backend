@@ -15,9 +15,18 @@ function msaGetMathpixCreds_() {
 function msaMathpixOCR_(imageBlob, requestOptions) {
   const creds = msaGetMathpixCreds_();
 
+  // Check image size and compress if needed (Mathpix limit is ~5MB)
+  let processedBlob = imageBlob;
+  const maxSizeBytes = 4 * 1024 * 1024; // 4MB to be safe
+  
+  if (imageBlob.getBytes().length > maxSizeBytes) {
+    msaLog_('Image too large (' + Math.round(imageBlob.getBytes().length / 1024 / 1024) + 'MB), compressing...');
+    processedBlob = compressImageBlob_(imageBlob, maxSizeBytes);
+  }
+
   const url = "https://api.mathpix.com/v3/text";
   const payload = {
-    src: "data:" + imageBlob.getContentType() + ";base64," + Utilities.base64Encode(imageBlob.getBytes()),
+    src: "data:" + processedBlob.getContentType() + ";base64," + Utilities.base64Encode(processedBlob.getBytes()),
     formats: MSA_MATHPIX_FORMATS,
     ...requestOptions
   };
@@ -42,4 +51,60 @@ function msaMathpixOCR_(imageBlob, requestOptions) {
   }
 
   return JSON.parse(text);
+}
+
+/**
+ * Compress an image blob to fit within size limit
+ * Uses Google Drive's thumbnail API as a compression workaround
+ */
+function compressImageBlob_(imageBlob, maxSizeBytes) {
+  try {
+    // Create a temporary file in Drive
+    const tempFile = DriveApp.createFile(imageBlob);
+    const fileId = tempFile.getId();
+    
+    // Use Drive API to get a resized thumbnail
+    // Try progressively smaller sizes until it fits
+    const sizes = [1600, 1200, 1000, 800, 600];
+    let compressedBlob = null;
+    
+    for (let i = 0; i < sizes.length; i++) {
+      try {
+        // Get thumbnail at this size
+        const thumbnailUrl = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w' + sizes[i];
+        const response = UrlFetchApp.fetch(thumbnailUrl, {
+          headers: {
+            'Authorization': 'Bearer ' + ScriptApp.getOAuthToken()
+          },
+          muteHttpExceptions: true
+        });
+        
+        if (response.getResponseCode() === 200) {
+          const blob = response.getBlob();
+          if (blob.getBytes().length <= maxSizeBytes) {
+            compressedBlob = blob.setName('compressed_image.jpg');
+            msaLog_('Compressed to ' + sizes[i] + 'px width, size: ' + Math.round(blob.getBytes().length / 1024) + 'KB');
+            break;
+          }
+        }
+      } catch (e) {
+        msaLog_('Compression at ' + sizes[i] + 'px failed: ' + e.message);
+      }
+    }
+    
+    // Clean up temp file
+    tempFile.setTrashed(true);
+    
+    if (compressedBlob) {
+      return compressedBlob;
+    }
+    
+    // If Drive API didn't work, try a different approach
+    msaLog_('Drive thumbnail compression failed, returning original');
+    return imageBlob;
+    
+  } catch (e) {
+    msaLog_('Image compression error: ' + e.message);
+    return imageBlob;
+  }
 }

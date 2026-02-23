@@ -315,6 +315,8 @@ function msaDetectMarkTag_(line) {
 
   // Case 3: Check for marks in parentheses at the end of a line with content.
   // e.g., "some text (A1)" or "other text (A1,A1)"
+  // NOTE: Marks in parentheses are "implied marks" - they can be awarded if
+  // a correct subsequent answer implies this step was done correctly.
   const endOfLineMatch = s.match(/^(.*)\s+\((.*)\)$/);
   if (endOfLineMatch) {
     const requirementPart = endOfLineMatch[1].trim();
@@ -330,9 +332,11 @@ function msaDetectMarkTag_(line) {
     const marksPartStripped = marksPart.replace(/[AMRN]\d+/g, "").replace(/[\s,;()]/g, "").trim();
     if (marksPartStripped.length === 0) {
       // This is a valid end-of-line mark construct.
+      // Marks in parentheses are IMPLIED marks per IB marking convention.
       return {
         marks: marksPartTokens, // Use the tokens from inside the parens
-        requirementPart: requirementPart
+        requirementPart: requirementPart,
+        isImplied: true  // Flag that these marks can be awarded by implication
       };
     }
   }

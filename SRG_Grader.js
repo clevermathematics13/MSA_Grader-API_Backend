@@ -23,21 +23,19 @@ function runSingleGradeTest() {
   // -----------------------------------------
 
   if (STUDENT_WORK_IMAGE_ID === "YOUR_IMAGE_FILE_ID_HERE" || MARKSCHEME_DOC_ID === "A_QUESTION_DOC_ID_FROM_YOUR_BATCH") {
-    const message = "Please open SRG_Grader.js and set the test IDs in the runSingleGradeTest function.";
-    throw new Error(message);
+    SpreadsheetApp.getUi().alert("Please open SRG_Grader.js and set the test IDs in the runSingleGradeTest function.");
+    return;
   }
 
-  // 1. Find the pre-processed markscheme points JSON file.
-  // 1. Find the pre-processed markscheme points JSON file for faster testing.
-  const cfg = msaGetConfig_();
-  const questionFolder = msaFindQuestionFolderByDocId_(cfg, MARKSCHEME_DOC_ID);
-  if (!questionFolder) throw new Error(`Could not find output folder for MARKSCHEME_DOC_ID: ${MARKSCHEME_DOC_ID}`);
-  
-  const markscheme = msaReadJsonFileIfExists_(questionFolder, "markscheme_points_best.json");
-  if (!markscheme || !markscheme.points) throw new Error(`Could not load or parse markscheme_points_best.json from folder: ${questionFolder.getName()}`);
-  const markschemePoints = markscheme.points;
+  // --- New Decoupled Workflow ---
+  // 1. Ensure the markscheme OCR JSON exists.
+  const ocrJsonFile = runOcrAndSaveToJson_(MARKSCHEME_DOC_ID);
 
-  // 2. Grade the student's work against the structured points.
+  // 2. Parse the OCR JSON to get the structured points.
+  const parsedResult = runParserFromJson_(ocrJsonFile.getId());
+  const markschemePoints = parsedResult.points;
+
+  // 3. Grade the student's work against the structured points.
   gradeStudentResponse(STUDENT_WORK_IMAGE_ID, MARKSCHEME_DOC_ID, markschemePoints);
 }
 
@@ -53,15 +51,13 @@ function gradeStudentResponse(studentWorkImageId, markschemeDocId, markschemePoi
   msaLog_("=== SRG (Student Response Grader) START ===");
   const cfg = msaGetConfig_();
 
-  msaLog_("SRG: Loaded " + markschemePoints.length + " markscheme points.");
+  // 1. Find the output folder (still useful for saving student OCR).
   const questionFolder = msaGetOrCreateQuestionFolder_(cfg, markschemeDocId);
+  msaLog_("SRG: Loaded " + markschemePoints.length + " markscheme points.");
 
   // 2. OCR the student's work
   msaLog_("SRG: OCR'ing student work image: " + studentWorkImageId);
   const studentOcr = msaMathpixOcrFromDriveImage_(studentWorkImageId, cfg, {});
-  if (!studentOcr) {
-    throw new Error("OCR failed: msaMathpixOcrFromDriveImage_ returned null. Check that the image ID is valid and Mathpix API is configured.");
-  }
   const studentText = studentOcr.text || "";
   msaLog_("SRG: Student OCR text length: " + studentText.length);
 
@@ -118,9 +114,11 @@ function gradeStudentResponse(studentWorkImageId, markschemeDocId, markschemePoi
  * This is a simple keyword-based approach and can be improved over time.
  * @param {string} studentOcrText The full OCR text from the student's work.
  * @param {string} requirementText The requirement text from a single markscheme point.
+ * @param {object} options Additional options like {isImplied: true, dependsOn: [...], allResults: [...]}
  * @returns {{awarded: boolean, score: number}}
  */
-function srgMatchRequirement_(studentOcrText, requirementText) {
+function srgMatchRequirement_(studentOcrText, requirementText, options) {
+  options = options || {};
   const getNumbers = (text) => (String(text || "").match(/-?\d+(\.\d+)?/g) || []);
 
   // --- STRATEGY 1: Exact Assignment Match (e.g., "n=27") ---

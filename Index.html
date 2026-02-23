@@ -71,6 +71,216 @@
       #student-ocr-rendered .MathJax {
         margin: 8px 0;
       }
+      
+      /* Full-screen Grading Modal */
+      #grading-modal-backdrop {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.8);
+        z-index: 200;
+      }
+      #grading-modal {
+        position: fixed;
+        top: 2%;
+        left: 2%;
+        right: 2%;
+        bottom: 2%;
+        background: #fff;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        z-index: 201;
+      }
+      .grading-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #ddd;
+      }
+      .grading-header h2 { margin: 0; }
+      .grading-body {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+      }
+      .grading-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-right: 1px solid #ddd;
+      }
+      .grading-pane:last-child { border-right: none; }
+      .grading-pane-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 15px;
+        background: #e9ecef;
+        border-bottom: 1px solid #ddd;
+      }
+      .grading-pane-header h4 { margin: 0; font-size: 14px; }
+      .grading-pane-content {
+        flex: 1;
+        overflow: auto;
+        padding: 10px;
+      }
+      .grading-pane-content img {
+        max-width: 100%;
+        height: auto;
+      }
+      .grading-pane-content iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+      .grading-results-pane {
+        width: 350px;
+        min-width: 350px;
+        display: flex;
+        flex-direction: column;
+      }
+      .score-header {
+        text-align: center;
+        padding: 15px;
+        background: #f8f9fa;
+      }
+      .score-big {
+        font-size: 32px;
+        font-weight: bold;
+      }
+      .score-high { color: #28a745; }
+      .score-medium { color: #ffc107; }
+      .score-low { color: #dc3545; }
+      .grading-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .grading-table th, .grading-table td {
+        padding: 8px 10px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+      }
+      .grading-table th {
+        background: #f5f5f5;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+      }
+      .grading-table tr.awarded { background: #e8f5e9; }
+      .grading-table tr.not-awarded { background: #ffebee; }
+      .grading-table tr.corrected { background: #fff9c4 !important; }
+      .grading-table tr.implied-mark { border-left: 3px solid #9c27b0; }
+      #student-rendered-view {
+        font-size: 16px;
+        line-height: 1.8;
+        padding: 15px;
+      }
+      
+      /* Correction button styles */
+      .correction-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        padding: 0;
+        font-size: 14px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .correction-btn.btn-award {
+        background: #e8f5e9;
+        color: #28a745;
+        border: 1px solid #28a745;
+      }
+      .correction-btn.btn-award:hover {
+        background: #28a745;
+        color: white;
+      }
+      .correction-btn.btn-deny {
+        background: #ffebee;
+        color: #dc3545;
+        border: 1px solid #dc3545;
+      }
+      .correction-btn.btn-deny:hover {
+        background: #dc3545;
+        color: white;
+      }
+      
+      /* Implied mark badge */
+      .implied-badge {
+        display: inline-block;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: bold;
+        background: #9c27b0;
+        color: white;
+        margin-left: 3px;
+        vertical-align: middle;
+      }
+      .implied-badge.dimmed {
+        background: #ce93d8;
+        opacity: 0.7;
+      }
+      
+      /* Save corrections button */
+      #save-corrections-btn {
+        background: #4CAF50;
+        color: white;
+      }
+      #save-corrections-btn:disabled {
+        background: #aaa;
+      }
+      #review-rules-btn {
+        background: #9c27b0;
+        color: white;
+      }
+      
+      /* Rules review modal */
+      .rules-list {
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      .rule-item {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 8px;
+        background: #fafafa;
+      }
+      .rule-item .rule-desc {
+        font-weight: 500;
+        margin-bottom: 5px;
+      }
+      .rule-item .rule-meta {
+        font-size: 11px;
+        color: #666;
+      }
+      .rule-actions {
+        margin-top: 8px;
+      }
+      .rule-actions button {
+        padding: 5px 12px;
+        font-size: 12px;
+        margin-right: 5px;
+      }
+      .btn-approve {
+        background: #28a745;
+        color: white;
+      }
+      .btn-reject {
+        background: #dc3545;
+        color: white;
+      }
     </style>
   </head>
   <body>
@@ -163,9 +373,69 @@
             </div>
           </div>
         </div>
-        <div style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
+        <div style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <button id="grade-student-work-btn" style="background-color: #007bff; color: white;">🎯 Grade Work</button>
           <button id="save-student-ocr-btn" style="background-color: #28a745; color: white;">Save Corrected OCR</button>
-          <button id="close-student-ocr-btn" style="background-color: #6c757d; color: white; margin-left: 10px;">Close</button>
+          <button id="close-student-ocr-btn" style="background-color: #6c757d; color: white;">Close</button>
+          <span id="detected-question-code" style="margin-left: auto; font-size: 12px; color: #666;"></span>
+        </div>
+        
+        <!-- Grading Results Panel (hidden by default) -->
+        <div id="grading-results-panel" style="display: none; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
+          <h4 style="margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+            <span>📊 Grading Results</span>
+            <span id="grade-score" style="font-size: 18px; font-weight: bold; color: #28a745;"></span>
+          </h4>
+          <div id="grading-breakdown" style="max-height: 200px; overflow-y: auto; font-size: 13px;"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Full-Screen Grading Modal -->
+    <div id="grading-modal-backdrop">
+      <div id="grading-modal">
+        <div class="grading-header">
+          <h2>📊 Grading: <span id="grading-question-code">-</span></h2>
+          <div>
+            <button id="close-grading-btn" style="background: #6c757d; color: white; padding: 8px 16px;">Close</button>
+          </div>
+        </div>
+        <div class="grading-body">
+          <!-- Left Pane: Student Work -->
+          <div class="grading-pane">
+            <div class="grading-pane-header">
+              <h4>📝 Student Work</h4>
+              <button id="toggle-student-view-btn" style="padding: 4px 10px; font-size: 12px; background: #667eea; color: white;">Show Rendered OCR</button>
+            </div>
+            <div class="grading-pane-content" id="student-work-pane">
+              <img id="grading-student-image" src="" alt="Student work">
+              <div id="student-rendered-view" style="display: none;"></div>
+            </div>
+          </div>
+          
+          <!-- Middle Pane: Mark Scheme -->
+          <div class="grading-pane">
+            <div class="grading-pane-header">
+              <h4>📋 Mark Scheme</h4>
+            </div>
+            <div class="grading-pane-content" id="markscheme-pane">
+              <iframe id="grading-markscheme-frame" src="about:blank"></iframe>
+            </div>
+          </div>
+          
+          <!-- Right Pane: Grading Results -->
+          <div class="grading-pane grading-results-pane">
+            <div class="score-header">
+              <div class="score-big" id="grading-score-display">- / -</div>
+              <div id="grading-percentage" style="font-size: 14px; color: #666;">-</div>
+            </div>
+            <div class="grading-pane-header">
+              <h4>Point-by-Point Breakdown</h4>
+            </div>
+            <div class="grading-pane-content" id="grading-points-list">
+              <!-- Points will be populated here -->
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -200,6 +470,9 @@
       document.getElementById('test-student-ocr-btn').addEventListener('click', testStudentOcr);
       document.getElementById('close-student-ocr-btn').addEventListener('click', () => { document.getElementById('student-ocr-modal-backdrop').style.display = 'none'; });
       document.getElementById('save-student-ocr-btn').addEventListener('click', saveStudentOcrCorrection);
+      document.getElementById('grade-student-work-btn').addEventListener('click', gradeStudentWork);
+      document.getElementById('close-grading-btn').addEventListener('click', () => { document.getElementById('grading-modal-backdrop').style.display = 'none'; });
+      document.getElementById('toggle-student-view-btn').addEventListener('click', toggleGradingStudentView);
 
       function log(message, type = '') {
         const statusDiv = document.getElementById('status');
@@ -426,6 +699,19 @@
             markersSpan.title = 'Full image was processed';
           }
           
+          // Display detected question code
+          const qCodeSpan = document.getElementById('detected-question-code');
+          if (result.detectedQuestionCode) {
+            qCodeSpan.textContent = `📌 Question: ${result.detectedQuestionCode} (${result.detectedPosition || 'Q2+'})`;
+            qCodeSpan.style.color = '#007bff';
+          } else {
+            qCodeSpan.textContent = '❓ No question code detected from QR';
+            qCodeSpan.style.color = '#6c757d';
+          }
+          
+          // Reset/hide grading results panel
+          document.getElementById('grading-results-panel').style.display = 'none';
+          
           // Setup toggle between raw and rendered views
           const toggleBtn = document.getElementById('toggle-ocr-view-btn');
           const textarea = document.getElementById('student-ocr-textarea');
@@ -483,6 +769,397 @@
             alert(`Error saving: ${err.message}`);
           })
           .saveStudentOcrCorrection(currentStudentOcrData.fileId, correctedText);
+      }
+      
+      function gradeStudentWork() {
+        if (!currentStudentOcrData) {
+          alert('No student work loaded. Please run OCR first.');
+          return;
+        }
+        
+        // Get the question code - either from auto-detection or prompt
+        let questionCode = currentStudentOcrData.detectedQuestionCode;
+        if (!questionCode) {
+          questionCode = prompt('Enter the question code (e.g., 14M.2.AHL.TZ2.H_1):', '');
+          if (!questionCode) return;
+        }
+        
+        const studentText = document.getElementById('student-ocr-textarea').value;
+        if (!studentText.trim()) {
+          alert('No OCR text available. Please ensure OCR was successful.');
+          return;
+        }
+        
+        log(`🎯 Grading student work for ${questionCode}...`, 'info');
+        document.getElementById('grade-student-work-btn').disabled = true;
+        
+        // Store for use in the grading modal
+        currentStudentOcrData.questionCode = questionCode;
+        currentStudentOcrData.studentText = studentText;
+        
+        google.script.run
+          .withSuccessHandler(handleGradingResult)
+          .withFailureHandler(err => {
+            log(`❌ Grading failed: ${err.message}`, 'error');
+            document.getElementById('grade-student-work-btn').disabled = false;
+            alert(`Grading error: ${err.message}`);
+          })
+          .gradeStudentWorkWithMarkscheme(studentText, questionCode);
+      }
+      
+      let gradingStudentViewMode = 'image'; // 'image' or 'rendered'
+      
+      function toggleGradingStudentView() {
+        const img = document.getElementById('grading-student-image');
+        const rendered = document.getElementById('student-rendered-view');
+        const btn = document.getElementById('toggle-student-view-btn');
+        
+        if (gradingStudentViewMode === 'image') {
+          img.style.display = 'none';
+          rendered.style.display = 'block';
+          btn.textContent = 'Show Original Image';
+          gradingStudentViewMode = 'rendered';
+          
+          // Trigger MathJax rendering
+          if (window.MathJax) {
+            MathJax.typesetPromise([rendered]).catch(err => console.error('MathJax error:', err));
+          }
+        } else {
+          img.style.display = 'block';
+          rendered.style.display = 'none';
+          btn.textContent = 'Show Rendered OCR';
+          gradingStudentViewMode = 'image';
+        }
+      }
+      
+      function handleGradingResult(result) {
+        document.getElementById('grade-student-work-btn').disabled = false;
+        
+        if (result.status === 'success') {
+          // Store the result for correction handling
+          window.currentGradingResult = result;
+          
+          // Open the full-screen grading modal
+          document.getElementById('grading-modal-backdrop').style.display = 'block';
+          
+          // Set the question code header
+          document.getElementById('grading-question-code').textContent = result.questionCode;
+          
+          // Set up student work pane
+          const studentImg = document.getElementById('grading-student-image');
+          if (currentStudentOcrData && currentStudentOcrData.imageUrl) {
+            studentImg.src = currentStudentOcrData.imageUrl;
+            studentImg.style.display = 'block';
+          }
+          
+          // Set up rendered OCR view
+          const renderedView = document.getElementById('student-rendered-view');
+          let displayText = (currentStudentOcrData.studentText || '').replace(/\\sum(?!\\limits)/g, '\\sum\\limits');
+          renderedView.innerHTML = displayText;
+          renderedView.style.display = 'none';
+          gradingStudentViewMode = 'image';
+          document.getElementById('toggle-student-view-btn').textContent = 'Show Rendered OCR';
+          
+          // Load mark scheme preview if available
+          const markschemeFrame = document.getElementById('grading-markscheme-frame');
+          if (result.markschemeHtml) {
+            markschemeFrame.srcdoc = result.markschemeHtml;
+          } else {
+            markschemeFrame.srcdoc = '<div style="padding: 20px; color: #666; text-align: center;">Mark scheme preview not available.<br><br>Process the mark scheme document first to generate the preview.</div>';
+          }
+          
+          // Display the score
+          const pct = result.score.percentage;
+          const scoreDisplay = document.getElementById('grading-score-display');
+          scoreDisplay.textContent = `${result.score.awarded} / ${result.score.possible}`;
+          scoreDisplay.className = 'score-big ' + (pct >= 70 ? 'score-high' : pct >= 50 ? 'score-medium' : 'score-low');
+          document.getElementById('grading-percentage').textContent = `${pct}%`;
+          
+          // Build the points breakdown table with correction buttons
+          const pointsList = document.getElementById('grading-points-list');
+          let html = '<table class="grading-table">';
+          html += '<tr><th style="width: 60px;">Part</th><th style="width: 50px;">Mark</th><th>Requirement</th><th style="width: 70px;">Correct</th></tr>';
+          
+          result.results.forEach((res, idx) => {
+            const status = res.awarded ? '✅' : '❌';
+            const markStr = (res.marks || []).join('');
+            const reqText = (res.requirement || '').substring(0, 60) + ((res.requirement || '').length > 60 ? '...' : '');
+            const rowClass = res.awarded ? 'awarded' : 'not-awarded';
+            const impliedClass = res.isImplied ? ' implied-mark' : '';
+            const part = res.part ? `(${res.part})` : '';
+            const impliedBadge = res.awardedByImplication ? '<span class="implied-badge" title="Awarded by implication">IMP</span>' : 
+                                 (res.isImplied ? '<span class="implied-badge dimmed" title="Implied mark (parenthesized)">(IMP)</span>' : '');
+            
+            html += `<tr class="${rowClass}${impliedClass}" data-point-idx="${idx}">`;
+            html += `<td>${status} ${part} ${impliedBadge}</td>`;
+            html += `<td style="text-align: center;">${markStr}</td>`;
+            html += `<td title="${(res.requirement || '').replace(/"/g, '&quot;')}">${reqText}</td>`;
+            html += `<td style="text-align: center;">`;
+            html += `<button class="correction-btn ${res.awarded ? 'btn-deny' : 'btn-award'}" onclick="toggleMarkCorrection(${idx})" title="${res.awarded ? 'Remove this mark' : 'Award this mark'}">`;
+            html += res.awarded ? '✗' : '✓';
+            html += `</button>`;
+            html += `</td>`;
+            html += '</tr>';
+          });
+          
+          html += '</table>';
+          
+          // Add part breakdown summary
+          if (result.breakdown && result.breakdown.length > 0) {
+            html += '<div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 11px;"><strong>Summary:</strong><br>';
+            result.breakdown.forEach(b => {
+              html += b + '<br>';
+            });
+            html += '</div>';
+          }
+          
+          // Add save corrections button
+          html += '<div style="margin-top: 15px; display: flex; gap: 10px;">';
+          html += '<button id="save-corrections-btn" class="btn btn-primary" onclick="saveGradingCorrections()" disabled>Save Corrections</button>';
+          html += '<button id="review-rules-btn" class="btn btn-secondary" onclick="reviewLearnedRules()">Review AI Rules</button>';
+          html += '</div>';
+          
+          pointsList.innerHTML = html;
+          
+          // Also update the small panel (for backwards compatibility)
+          const panel = document.getElementById('grading-results-panel');
+          panel.style.display = 'block';
+          const scoreSpan = document.getElementById('grade-score');
+          scoreSpan.textContent = `${result.score.awarded} / ${result.score.possible} (${pct}%)`;
+          scoreSpan.style.color = pct >= 70 ? '#28a745' : pct >= 50 ? '#ffc107' : '#dc3545';
+          
+          log(`✅ Grading complete: ${result.score.awarded}/${result.score.possible} (${pct}%)`, pct >= 70 ? 'success' : 'warn');
+        } else {
+          log(`❌ Grading failed: ${result.message}`, 'error');
+          alert(`Grading error: ${result.message}`);
+        }
+      }
+      
+      // Track corrections made by teacher
+      window.gradingCorrections = {};
+      
+      /**
+       * Toggle a mark's awarded status (teacher correction).
+       * @param {number} idx Index of the point in the results array.
+       */
+      function toggleMarkCorrection(idx) {
+        if (!window.currentGradingResult || !window.currentGradingResult.results) return;
+        
+        const result = window.currentGradingResult.results[idx];
+        const originalAwarded = result.awarded;
+        const newAwarded = !originalAwarded;
+        
+        // Track the correction
+        window.gradingCorrections[idx] = {
+          pointId: result.point_id,
+          part: result.part,
+          originalDecision: originalAwarded,
+          correctedDecision: newAwarded,
+          requirement: result.requirement
+        };
+        
+        // Update the display
+        result.awarded = newAwarded;
+        
+        const row = document.querySelector(`tr[data-point-idx="${idx}"]`);
+        if (row) {
+          row.classList.remove('awarded', 'not-awarded');
+          row.classList.add(newAwarded ? 'awarded' : 'not-awarded', 'corrected');
+          
+          const statusCell = row.cells[0];
+          const statusText = statusCell.innerHTML.replace(/[✅❌]/, newAwarded ? '✅' : '❌');
+          statusCell.innerHTML = statusText;
+          
+          const btn = row.querySelector('.correction-btn');
+          if (btn) {
+            btn.className = `correction-btn ${newAwarded ? 'btn-deny' : 'btn-award'}`;
+            btn.innerHTML = newAwarded ? '✗' : '✓';
+            btn.title = newAwarded ? 'Remove this mark' : 'Award this mark';
+          }
+        }
+        
+        // Recalculate score
+        recalculateScore();
+        
+        // Enable save button
+        const saveBtn = document.getElementById('save-corrections-btn');
+        if (saveBtn) saveBtn.disabled = Object.keys(window.gradingCorrections).length === 0;
+        
+        log(`Mark ${idx + 1} (${result.point_id}) ${newAwarded ? 'awarded' : 'removed'} by teacher`, 'warn');
+      }
+      
+      /**
+       * Recalculate the displayed score after corrections.
+       */
+      function recalculateScore() {
+        if (!window.currentGradingResult) return;
+        
+        let awarded = 0;
+        let possible = 0;
+        
+        window.currentGradingResult.results.forEach(res => {
+          const marks = res.marks || [];
+          marks.forEach(m => {
+            const match = m.match(/[AM](\d*)/);
+            const count = match && match[1] ? parseInt(match[1]) : 1;
+            possible += count;
+            if (res.awarded) awarded += count;
+          });
+        });
+        
+        const pct = possible > 0 ? Math.round((awarded / possible) * 100) : 0;
+        
+        // Update display
+        const scoreDisplay = document.getElementById('grading-score-display');
+        scoreDisplay.textContent = `${awarded} / ${possible}`;
+        scoreDisplay.className = 'score-big ' + (pct >= 70 ? 'score-high' : pct >= 50 ? 'score-medium' : 'score-low');
+        document.getElementById('grading-percentage').textContent = `${pct}%`;
+      }
+      
+      /**
+       * Save all corrections to the database for learning.
+       */
+      function saveGradingCorrections() {
+        const corrections = Object.values(window.gradingCorrections);
+        if (corrections.length === 0) {
+          alert('No corrections to save.');
+          return;
+        }
+        
+        const teacherNotes = prompt('Any notes about these corrections? (optional)', '');
+        const questionCode = window.currentGradingResult.questionCode;
+        const studentText = currentStudentOcrData ? currentStudentOcrData.studentText : '';
+        
+        let saved = 0;
+        let failed = 0;
+        
+        corrections.forEach((corr, i) => {
+          google.script.run
+            .withSuccessHandler(result => {
+              saved++;
+              if (saved + failed === corrections.length) {
+                log(`✅ Saved ${saved} corrections (${failed} failed)`, saved > 0 ? 'success' : 'error');
+                alert(`Saved ${saved} corrections for AI learning.`);
+                window.gradingCorrections = {};
+                document.getElementById('save-corrections-btn').disabled = true;
+                
+                // Remove corrected class from all rows
+                document.querySelectorAll('.grading-table tr.corrected').forEach(row => {
+                  row.classList.remove('corrected');
+                });
+              }
+            })
+            .withFailureHandler(err => {
+              failed++;
+              console.error('Failed to save correction:', err);
+              if (saved + failed === corrections.length) {
+                log(`Saved ${saved} corrections (${failed} failed)`, failed > 0 ? 'warn' : 'success');
+              }
+            })
+            .saveGradingCorrection(
+              questionCode,
+              corr.pointId,
+              corr.originalDecision,
+              corr.correctedDecision,
+              studentText,
+              corr.requirement,
+              teacherNotes
+            );
+        });
+      }
+      
+      /**
+       * Open the rules review panel.
+       */
+      function reviewLearnedRules() {
+        log('Loading AI rules for review...', 'info');
+        
+        google.script.run
+          .withSuccessHandler(result => {
+            if (result.error) {
+              alert('Error loading rules: ' + result.error);
+              return;
+            }
+            
+            const pendingRules = result || [];
+            
+            if (pendingRules.length === 0) {
+              alert('No pending rules to review. The AI will propose new rules as you make corrections.');
+              return;
+            }
+            
+            // Build rules review modal content
+            let html = '<div class="rules-list">';
+            pendingRules.forEach((rule, idx) => {
+              html += `<div class="rule-item" data-row="${rule.rowIndex}">`;
+              html += `<div class="rule-desc">${rule.description}</div>`;
+              html += `<div class="rule-meta">`;
+              html += `Question: ${rule.questionCode || '*'} | Point: ${rule.pointId || '*'} | Type: ${rule.type} | Confidence: ${Math.round((rule.confidence || 0.5) * 100)}%`;
+              html += `</div>`;
+              html += `<div class="rule-actions">`;
+              html += `<button class="btn-approve" onclick="approveRule(${rule.rowIndex})">✓ Approve</button>`;
+              html += `<button class="btn-reject" onclick="rejectRule(${rule.rowIndex})">✗ Reject</button>`;
+              html += `</div>`;
+              html += `</div>`;
+            });
+            html += '</div>';
+            
+            // Show in a simple alert for now (could be modal later)
+            const rulesPanel = document.createElement('div');
+            rulesPanel.id = 'rules-review-panel';
+            rulesPanel.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 300; max-width: 600px; max-height: 80vh; overflow: auto;';
+            rulesPanel.innerHTML = `
+              <h3 style="margin-top: 0;">AI Rules for Review (${pendingRules.length})</h3>
+              <p style="font-size: 12px; color: #666;">These rules were proposed based on your corrections. Approve rules to let the AI use them automatically, or reject to discard.</p>
+              ${html}
+              <div style="margin-top: 15px; text-align: right;">
+                <button onclick="document.getElementById('rules-review-panel').remove();" style="background: #666; color: white;">Close</button>
+              </div>
+            `;
+            document.body.appendChild(rulesPanel);
+            
+            log(`Loaded ${pendingRules.length} pending AI rules for review`, 'success');
+          })
+          .withFailureHandler(err => {
+            alert('Failed to load rules: ' + err);
+          })
+          .getPendingRulesForReview();
+      }
+      
+      /**
+       * Approve a learned rule.
+       */
+      function approveRule(rowIndex) {
+        google.script.run
+          .withSuccessHandler(result => {
+            if (result.status === 'success') {
+              log('Rule approved and activated', 'success');
+              const item = document.querySelector(`.rule-item[data-row="${rowIndex}"]`);
+              if (item) item.style.display = 'none';
+            } else {
+              alert('Failed to approve rule: ' + result.message);
+            }
+          })
+          .withFailureHandler(err => alert('Error: ' + err))
+          .reviewRule(rowIndex, true);
+      }
+      
+      /**
+       * Reject a learned rule.
+       */
+      function rejectRule(rowIndex) {
+        google.script.run
+          .withSuccessHandler(result => {
+            if (result.status === 'success') {
+              log('Rule rejected', 'warn');
+              const item = document.querySelector(`.rule-item[data-row="${rowIndex}"]`);
+              if (item) item.style.display = 'none';
+            } else {
+              alert('Failed to reject rule: ' + result.message);
+            }
+          })
+          .withFailureHandler(err => alert('Error: ' + err))
+          .reviewRule(rowIndex, false);
       }
     </script>
   </body>

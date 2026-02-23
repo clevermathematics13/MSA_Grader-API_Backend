@@ -28,21 +28,6 @@ function apiDriveScopeSmokeTest() {
   };
 }
 
-/**
- * 🟢 RUN THIS FUNCTION ONCE from the editor to grant all necessary permissions.
- * This function touches all the services the script needs, forcing the
- * Google consent screen to appear for the API execution context.
- */
-function grantApiPermissions() {
-  try {
-    DriveApp.getRootFolder();
-    UrlFetchApp.fetch("https://www.google.com", { muteHttpExceptions: true });
-    Logger.log("Permissions successfully granted! You can now run tests from your terminal.");
-  } catch (e) {
-    Logger.log(`An error occurred, but the permission request was likely sent. Error: ${e.message}`);
-  }
-}
-
 function runMSA_VR_Batch() {
   msaLog_("=== MSA-VR (Validation & Repair) BATCH START ===");
 
@@ -265,41 +250,11 @@ function runParserFromJson_(ocrJsonFileId) {
   }
 
   const meta = msaGetDocMeta_(cfg, docId);
-  
-  // Calculate score totals
-  const extractedScoreInfo = msaCalculateTotalPossibleScore_(best.best.json.points);
-  const extractedTotal = extractedScoreInfo.total;
-  
-  // Try to extract official total from OCR text
-  const allOcrText = ocrPages.map(p => p.text || "").join("\n");
-  let officialTotalMarks = null;
-  const totalMarksRegex = /(?:Total\s*:?\s*)?\[\s*(?:Total\s*:?\s*)?(\d+)\s*marks?\s*\]/ig;
-  const allMatches = allOcrText.match(totalMarksRegex);
-  if (allMatches && allMatches.length > 0) {
-    const lastMatchStr = allMatches[allMatches.length - 1];
-    const finalMatch = lastMatchStr.match(/(?:Total\s*:?\s*)?\[\s*(?:Total\s*:?\s*)?(\d+)\s*marks?\s*\]/i);
-    if (finalMatch && finalMatch[1]) {
-      officialTotalMarks = parseInt(finalMatch[1], 10);
-    }
-  }
-  
-  // Determine if there's a discrepancy
-  const needsReview = officialTotalMarks !== null && extractedTotal !== officialTotalMarks;
-  
-  if (needsReview) {
-    msaDeleteFileIfExists_(folder, "_RECONCILED.txt");
-  } else if (officialTotalMarks !== null) {
-    msaUpsertTextFile_(folder, "_RECONCILED.txt", `Reconciled on: ${new Date().toISOString()}`);
-  }
-  
   return {
-    status: needsReview ? 'NEEDS_REVIEW' : 'SUCCESS',
+    status: 'SUCCESS',
     doc_id: docId,
     doc_title: meta.title,
-    officialTotal: officialTotalMarks,
-    calculatedTotal: extractedTotal,
     best_pass: best.bestPass,
-    score_breakdown: extractedScoreInfo.breakdown,
     points: best.best.json.points
   };
 }
@@ -307,11 +262,10 @@ function runParserFromJson_(ocrJsonFileId) {
 function runMSA_VR_One(docId) {
   const t0 = Date.now();
   msaLog_("=== MSA-VR START === docId=" + docId);
-  
-  // Use the new decoupled workflow: OCR -> Parse
-  const result = runMSA_VR_One_ForWebApp(docId);
+  const { ocrPages, folder } = _getOcrPages(docId);
+  const result = _runMsaPipeline(docId, ocrPages);
 
-  msaLog_("BEST = " + result.best_pass + " Extracted Total: " + (result.calculatedTotal || 'N/A'));
+  msaLog_("BEST = " + result.best_pass + " Extracted Total: " + result.calculatedTotal);
   if (result.status === 'NEEDS_REVIEW') {
     msaWarn_("Discrepancy: Official " + result.officialTotal + " vs Extracted " + result.calculatedTotal);
   }
