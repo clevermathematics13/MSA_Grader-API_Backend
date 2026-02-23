@@ -27,12 +27,30 @@ function gradeWithImpliedMarks(studentText, markschemePoints, options) {
   options = options || {};
   const results = [];
   
+  /**
+   * Helper: detect if a point has implied marks from either the isImplied flag
+   * OR from the mark names themselves. IB convention: marks in parentheses
+   * like (A1), (M1) are implied marks. The JSON may not store isImplied,
+   * but the mark name always has the parentheses.
+   */
+  function isImpliedMark(point) {
+    // Check stored flag first
+    if (point.isImplied === true) return true;
+    // Check mark names for parentheses: "(A1)", "(M1)", etc.
+    var marks = point.marks || [];
+    for (var i = 0; i < marks.length; i++) {
+      if (/^\(/.test(marks[i])) return true; // starts with ( → implied
+    }
+    return false;
+  }
+  
   // First pass: Grade each point normally
   markschemePoints.forEach(function(point, idx) {
-    msaLog_('[GRADING PASS 1] Grading point ' + (point.id || ('P' + (idx + 1))) + ' | part: ' + (point.part || '') + ' | requirement: ' + point.requirement);
-    if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 1] Grading point ' + (point.id || ('P' + (idx + 1))) + ' | part: ' + (point.part || '') + ' | requirement: ' + point.requirement);
+    var implied = isImpliedMark(point);
+    msaLog_('[GRADING PASS 1] Grading point ' + (point.id || ('P' + (idx + 1))) + ' | part: ' + (point.part || '') + ' | marks: ' + JSON.stringify(point.marks) + ' | isImplied: ' + implied + ' | requirement: ' + point.requirement);
+    if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 1] Grading point ' + (point.id || ('P' + (idx + 1))) + ' | part: ' + (point.part || '') + ' | marks: ' + JSON.stringify(point.marks) + ' | isImplied: ' + implied + ' | requirement: ' + point.requirement);
     const matchResult = srgMatchRequirement_(studentText, point.requirement, {
-      isImplied: point.isImplied || false
+      isImplied: implied
     });
     msaLog_('[GRADING PASS 1] Match result for ' + (point.id || ('P' + (idx + 1))) + ': awarded=' + matchResult.awarded + ', score=' + matchResult.score);
     if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 1] Match result for ' + (point.id || ('P' + (idx + 1))) + ': awarded=' + matchResult.awarded + ', score=' + matchResult.score);
@@ -43,7 +61,7 @@ function gradeWithImpliedMarks(studentText, markschemePoints, options) {
       branch: point.branch || '',
       marks: point.marks || [],
       requirement: point.requirement,
-      isImplied: point.isImplied || false,
+      isImplied: implied,
       awarded: matchResult.awarded,
       score: matchResult.score,
       details: matchResult.details,
@@ -54,8 +72,8 @@ function gradeWithImpliedMarks(studentText, markschemePoints, options) {
   // Second pass: Check implied marks for ALL implied marks, regardless of initial award status
   results.forEach(function(res, idx) {
     if (res.isImplied) {
-      msaLog_('[GRADING PASS 2] Checking implied mark for ' + res.point_id + ' | awarded=' + res.awarded);
-      if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 2] Checking implied mark for ' + res.point_id + ' | awarded=' + res.awarded);
+      msaLog_('[GRADING PASS 2] Checking implied mark for ' + res.point_id + ' | marks: ' + JSON.stringify(res.marks) + ' | awarded=' + res.awarded);
+      if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 2] Checking implied mark for ' + res.point_id + ' | marks: ' + JSON.stringify(res.marks) + ' | awarded=' + res.awarded);
       var impliedDecision = checkImpliedMarkAward(res, results, studentText);
       msaLog_('[GRADING PASS 2] Implied mark decision for ' + res.point_id + ': shouldAward=' + impliedDecision.shouldAward + ', reason=' + impliedDecision.reason);
       if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 2] Implied mark decision for ' + res.point_id + ': shouldAward=' + impliedDecision.shouldAward + ', reason=' + impliedDecision.reason);
