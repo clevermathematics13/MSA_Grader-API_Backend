@@ -1,0 +1,17 @@
+{
+  "name": "msa-grader",
+  "version": "1.0.0",
+  "description": "IB Mathematics Auto-Grader – Google Apps Script backend",
+  "private": true,
+  "scripts": {
+    "test": "jest --verbose",
+    "lint": "eslint *.js --no-error-on-unmatched-pattern"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testMatch": ["**/tests/**/*.test.js"]
+  }
+}
