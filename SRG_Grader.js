@@ -121,6 +121,18 @@ function srgMatchRequirement_(studentOcrText, requirementText, options) {
   options = options || {};
   const getNumbers = (text) => (String(text || "").match(/-?\d+(\.\d+)?/g) || []);
 
+  // --- STRATEGY 0: Sigma / Summation Equivalence ---
+  // IB mark schemes often say "∑(expression) or equivalent".
+  // Students may use a different index variable, different bounds, or
+  // a simplified integrand that is algebraically identical.
+  // We evaluate both sigma expressions numerically and compare.
+  if (/sum|\\sum|∑|Σ/i.test(requirementText) && /sum|\\sum|∑|Σ/i.test(studentOcrText)) {
+    var sigmaResult = srgMatchSigmaExpressions_(studentOcrText, requirementText);
+    if (sigmaResult && sigmaResult.awarded) {
+      return sigmaResult;
+    }
+  }
+
   // --- STRATEGY 1: Exact Assignment Match (e.g., "n=27") ---
   // This is high confidence and is checked against the whole document.
   const normalizedRequirement = String(requirementText || "").replace(/[\\()]/g, "").trim();
@@ -279,4 +291,289 @@ function srgCalculateAwardedScore_(results) {
     total: totalAwarded,
     breakdown: breakdown
   };
+}
+
+
+/* ═══════════════════════════════════════════════════════
+ * SIGMA EXPRESSION EQUIVALENCE CHECKER
+ *
+ * Parses sigma/summation expressions from both mark-scheme and student
+ * text, evaluates them numerically, and compares the results.
+ *
+ * Handles common IB forms:
+ *   ∑_{n=1}^{27}(7+7n)          mark scheme
+ *   ∑_{i=2}^{28} 7i             student (index-shifted equivalent)
+ *   \sum_{k=1}^{27}(7+7k)       LaTeX variant
+ *   ∑7i  with limits i=2..28    OCR variant
+ * ═══════════════════════════════════════════════════════ */
+
+/**
+ * Try to match a sigma expression in the student text against one
+ * in the requirement text by evaluating both numerically.
+ *
+ * @param {string} studentText  Full student OCR text
+ * @param {string} reqText      Requirement text from mark scheme
+ * @returns {object|null}  { awarded, score, details } or null if
+ *   we can't parse a sigma expression from either side.
+ */
+function srgMatchSigmaExpressions_(studentText, reqText) {
+  // 1. Parse sigma expression(s) from the requirement
+  var reqSigma = parseSigmaExpression_(reqText);
+  if (!reqSigma) return null;
+
+  // 2. Parse sigma expression(s) from the student text
+  //    The student may have written it on one line near the part marker,
+  //    or spread across the whole text.  Try the full text.
+  var stuSigma = parseSigmaExpression_(studentText);
+  if (!stuSigma) return null;
+
+  // 3. Evaluate both expressions numerically
+  var reqValue = evaluateSigma_(reqSigma);
+  var stuValue = evaluateSigma_(stuSigma);
+
+  if (reqValue === null || stuValue === null) return null;
+
+  msaLog_('[SIGMA MATCH] Requirement: ∑(' + reqSigma.body + '), ' +
+    reqSigma.variable + '=' + reqSigma.lower + '..' + reqSigma.upper +
+    ' → ' + reqValue);
+  msaLog_('[SIGMA MATCH] Student:     ∑(' + stuSigma.body + '), ' +
+    stuSigma.variable + '=' + stuSigma.lower + '..' + stuSigma.upper +
+    ' → ' + stuValue);
+
+  // 4. Compare
+  var tol = Math.abs(reqValue) * 1e-9 + 1e-9; // relative + absolute tolerance
+  if (Math.abs(reqValue - stuValue) <= tol) {
+    return {
+      awarded: true,
+      score: 1.0,
+      details: {
+        type: 'sigma_equivalence',
+        required: reqSigma,
+        found: stuSigma,
+        reqValue: reqValue,
+        stuValue: stuValue,
+        missing: []
+      }
+    };
+  }
+
+  // Values don't match — not equivalent
+  msaLog_('[SIGMA MATCH] Values differ: ' + reqValue + ' ≠ ' + stuValue);
+  return null; // fall through to other strategies
+}
+
+/**
+ * Parse a sigma expression from text.
+ * Handles many OCR / LaTeX variants:
+ *
+ *   ∑_{n=1}^{27}(7+7n)     →  { variable:'n', lower:1, upper:27, body:'7+7*n' }
+ *   \sum_{i=2}^{28} 7i      →  { variable:'i', lower:2, upper:28, body:'7*i' }
+ *   ∑7i (with i=2..28)      →  { variable:'i', lower:2, upper:28, body:'7*i' }
+ *
+ * @param {string} text
+ * @returns {object|null}  { variable, lower, upper, body } or null
+ */
+function parseSigmaExpression_(text) {
+  if (!text) return null;
+
+  // Normalise common OCR/LaTeX sigma representations
+  var t = String(text)
+    .replace(/\\sum\\limits/g, '∑')
+    .replace(/\\sum/g, '∑')
+    .replace(/Σ/g, '∑')
+    .replace(/\\left|\\right/g, '')
+    .replace(/\\cdot/g, '*')
+    .replace(/\\times/g, '*')
+    .replace(/\\{|\\}/g, '')
+    .replace(/\s+/g, ' ');
+
+  // Pattern A:  ∑ _{var=lower}^{upper} body
+  // Covers:  ∑_{n=1}^{27}(7+7n)   and   ∑ _{i=2}^{28} 7i
+  var patA = /∑\s*_?\s*\{?\s*([a-zA-Z])\s*=\s*(-?\d+)\s*\}?\s*\^?\s*\{?\s*(-?\d+)\s*\}?\s*(.+?)(?:\s+or\s+|$)/i;
+  var mA = t.match(patA);
+  if (!mA) {
+    // Pattern B: looser — ∑ body with limits on separate tokens
+    // e.g. "∑ (7 + 7n)  n=1  27"   or  OCR variants
+    patA = /∑\s*_?\s*\{?\s*([a-zA-Z])\s*=\s*(-?\d+)\s*\}?\s*\^?\s*\{?\s*(-?\d+)\s*\}?\s*(.+)/i;
+    mA = t.match(patA);
+  }
+
+  if (mA) {
+    return {
+      variable: mA[1],
+      lower: parseInt(mA[2], 10),
+      upper: parseInt(mA[3], 10),
+      body: normaliseBody_(mA[4].trim(), mA[1])
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Normalise the body of a sigma expression into something we can evaluate.
+ *   "7+7n"    → "7+7*n"
+ *   "7i"      → "7*i"
+ *   "(7+7n)"  → "7+7*n"
+ *   "7 + 7n"  → "7+7*n"
+ *
+ * @param {string} raw   The raw body text
+ * @param {string} v     The summation variable (e.g. 'n', 'i')
+ * @returns {string}  Evaluatable expression
+ */
+function normaliseBody_(raw, v) {
+  var s = raw
+    .replace(/^\(|\)$/g, '')         // strip outer parens
+    .replace(/\s+/g, '')             // remove spaces
+    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '(($1)/($2))')  // \frac{a}{b} → (a)/(b)
+    .replace(/\\left|\\right/g, '')
+    .replace(/[{}]/g, '');
+
+  // Insert multiplication before the variable where implied:
+  //   "7n"  → "7*n"    "7i" → "7*i"
+  //   but not "7+n" or "7-n" (those already have an operator)
+  var re = new RegExp('(\\d)(' + v + ')', 'g');
+  s = s.replace(re, '$1*$2');
+
+  // Also handle variable followed by digit (rare but possible)
+  re = new RegExp('(' + v + ')(\\d)', 'g');
+  s = s.replace(re, '$1*$2');
+
+  return s;
+}
+
+/**
+ * Evaluate a parsed sigma expression by iterating from lower to upper.
+ * Uses a simple safe-eval approach (no `eval`).
+ *
+ * @param {object} sigma  { variable, lower, upper, body }
+ * @returns {number|null}  The numeric sum, or null if evaluation fails.
+ */
+function evaluateSigma_(sigma) {
+  if (!sigma || sigma.lower > sigma.upper) return null;
+  // Safety: don't evaluate huge sums
+  if (sigma.upper - sigma.lower > 10000) return null;
+
+  try {
+    var total = 0;
+    for (var k = sigma.lower; k <= sigma.upper; k++) {
+      var val = evaluateSimpleExpression_(sigma.body, sigma.variable, k);
+      if (val === null) return null;
+      total += val;
+    }
+    return total;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Evaluate a simple arithmetic expression with one variable replaced by a value.
+ * Supports: +, -, *, /, parentheses, integers, decimals.
+ * Does NOT use eval() for safety.
+ *
+ * @param {string} expr   e.g. "7+7*n"
+ * @param {string} varName  e.g. "n"
+ * @param {number} varValue  e.g. 3
+ * @returns {number|null}
+ */
+function evaluateSimpleExpression_(expr, varName, varValue) {
+  // Replace the variable with its numeric value
+  var s = expr.replace(new RegExp(varName, 'g'), String(varValue));
+
+  // Tokenise
+  var tokens = tokenise_(s);
+  if (!tokens) return null;
+
+  // Parse with standard precedence: +- then */
+  var pos = { i: 0 };
+  var result = parseAddSub_(tokens, pos);
+  if (pos.i !== tokens.length) return null; // leftover tokens → bad parse
+  return result;
+}
+
+/**
+ * Tokeniser for simple arithmetic expressions.
+ * Returns array of { type: 'num'|'op'|'('|')', value }
+ */
+function tokenise_(s) {
+  var tokens = [];
+  var i = 0;
+  while (i < s.length) {
+    var ch = s[i];
+    if (ch === ' ') { i++; continue; }
+
+    // Number (including negation at start or after '(' or operator)
+    if (/\d/.test(ch) || (ch === '-' && (tokens.length === 0 ||
+        tokens[tokens.length - 1].type === 'op' ||
+        tokens[tokens.length - 1].type === '('))) {
+      var start = i;
+      if (ch === '-') i++;
+      while (i < s.length && /[\d.]/.test(s[i])) i++;
+      tokens.push({ type: 'num', value: parseFloat(s.substring(start, i)) });
+      continue;
+    }
+
+    if ('+-*/'.indexOf(ch) >= 0) {
+      tokens.push({ type: 'op', value: ch });
+      i++;
+      continue;
+    }
+
+    if (ch === '(') { tokens.push({ type: '(' }); i++; continue; }
+    if (ch === ')') { tokens.push({ type: ')' }); i++; continue; }
+
+    // Unknown character — fail
+    return null;
+  }
+  return tokens;
+}
+
+/** Parse addition / subtraction (lowest precedence) */
+function parseAddSub_(tokens, pos) {
+  var left = parseMulDiv_(tokens, pos);
+  if (left === null) return null;
+  while (pos.i < tokens.length && tokens[pos.i].type === 'op' &&
+         (tokens[pos.i].value === '+' || tokens[pos.i].value === '-')) {
+    var op = tokens[pos.i].value;
+    pos.i++;
+    var right = parseMulDiv_(tokens, pos);
+    if (right === null) return null;
+    left = op === '+' ? left + right : left - right;
+  }
+  return left;
+}
+
+/** Parse multiplication / division */
+function parseMulDiv_(tokens, pos) {
+  var left = parseAtom_(tokens, pos);
+  if (left === null) return null;
+  while (pos.i < tokens.length && tokens[pos.i].type === 'op' &&
+         (tokens[pos.i].value === '*' || tokens[pos.i].value === '/')) {
+    var op = tokens[pos.i].value;
+    pos.i++;
+    var right = parseAtom_(tokens, pos);
+    if (right === null) return null;
+    left = op === '*' ? left * right : left / right;
+  }
+  return left;
+}
+
+/** Parse an atom: number or parenthesised sub-expression */
+function parseAtom_(tokens, pos) {
+  if (pos.i >= tokens.length) return null;
+  var tok = tokens[pos.i];
+  if (tok.type === 'num') {
+    pos.i++;
+    return tok.value;
+  }
+  if (tok.type === '(') {
+    pos.i++; // skip (
+    var val = parseAddSub_(tokens, pos);
+    if (val === null) return null;
+    if (pos.i >= tokens.length || tokens[pos.i].type !== ')') return null;
+    pos.i++; // skip )
+    return val;
+  }
+  return null;
 }
