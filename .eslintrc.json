@@ -6,9 +6,26 @@
   "parserOptions": {
     "ecmaVersion": 2020
   },
+  "globals": {
+    "SpreadsheetApp": "readonly",
+    "DriveApp": "readonly",
+    "DocumentApp": "readonly",
+    "UrlFetchApp": "readonly",
+    "Utilities": "readonly",
+    "HtmlService": "readonly",
+    "Logger": "readonly",
+    "PropertiesService": "readonly",
+    "ScriptApp": "readonly",
+    "Session": "readonly",
+    "ContentService": "readonly",
+    "CacheService": "readonly",
+    "LockService": "readonly",
+    "CardService": "readonly",
+    "console": "readonly"
+  },
   "rules": {
     "no-undef": "warn",
-    "no-unused-vars": "warn",
+    "no-unused-vars": "off",
     "no-redeclare": "error",
     "eqeqeq": "warn"
   }
