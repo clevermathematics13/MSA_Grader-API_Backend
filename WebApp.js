@@ -914,12 +914,32 @@ function gradeStudentWork(studentOcrText, questionCode) {
     const cleanedStudentText = cleanStudentOcrText_(studentOcrText);
     msaLog_('Student text length (cleaned): ' + cleanedStudentText.length);
     
+    // 2b. OCR Verification Pass — cross-check numbers against mark-scheme
+    //     using glyph-confusion matrix to catch common handwriting OCR errors
+    var ocrVerification = null;
+    var verifiedStudentText = cleanedStudentText;
+    try {
+      ocrVerification = ocrVerifyStudentWork(
+        cleanedStudentText,
+        null,  // latexStyledText — pass if available
+        markschemePoints,
+        { autoCorrectThreshold: 0.55 }
+      );
+      verifiedStudentText = ocrVerification.verifiedText;
+      if (ocrVerification.stats.corrected > 0 || ocrVerification.stats.flagged > 0) {
+        msaLog_('OCR Verify: ' + ocrVerification.stats.corrected + ' auto-corrected, ' +
+          ocrVerification.stats.flagged + ' flagged for review');
+      }
+    } catch (verifyErr) {
+      msaWarn_('OCR verification pass failed (non-fatal): ' + verifyErr.message);
+    }
+    
     // 3. Grade each point using the AI system with implied marks
     // The gradeWithImpliedMarks function handles:
     //   - First pass: grade each point normally
     //   - Second pass: check implied marks (parenthesized marks) for implication awards
     //   - Third pass: apply any learned rules from corrections database
-    const results = gradeWithImpliedMarks(cleanedStudentText, markschemePoints, {
+    const results = gradeWithImpliedMarks(verifiedStudentText, markschemePoints, {
       questionCode: questionCode,
       enableLearning: true
     });
@@ -942,7 +962,14 @@ function gradeStudentWork(studentOcrText, questionCode) {
       },
       results: results,
       breakdown: awardedScore.breakdown,
-      processingTime: processingTime
+      processingTime: processingTime,
+      ocrVerification: ocrVerification ? {
+        corrected: ocrVerification.stats.corrected,
+        flagged: ocrVerification.stats.flagged,
+        corrections: ocrVerification.corrections,
+        originalText: ocrVerification.originalText,
+        verifiedText: ocrVerification.verifiedText
+      } : null
     };
     
   } catch (e) {

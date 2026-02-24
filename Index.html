@@ -273,6 +273,33 @@
         background: #9c27b0;
         color: white;
       }
+
+      /* OCR Verification banner */
+      .ocr-verify-banner {
+        margin-bottom: 12px;
+        padding: 10px 14px;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .ocr-auto { color: #28a745; font-weight: 600; }
+      .ocr-flag { color: #dc3545; font-weight: 600; }
+      .ocr-kept { color: #6c757d; }
+      .ocr-corrections-table {
+        border-collapse: collapse;
+      }
+      .ocr-corrections-table th,
+      .ocr-corrections-table td {
+        padding: 3px 8px;
+        border-bottom: 1px solid #dee2e6;
+        text-align: left;
+      }
+      .ocr-corrections-table th {
+        font-weight: 600;
+        background: #f8f9fa;
+      }
       
       /* Rules review modal */
       .rules-list {
@@ -906,7 +933,37 @@
           
           // Build the points breakdown table with correction buttons
           const pointsList = document.getElementById('grading-points-list');
-          let html = '<table class="grading-table">';
+          let html = '';
+          
+          // OCR Verification banner (if corrections/flags exist)
+          if (result.ocrVerification && (result.ocrVerification.corrected > 0 || result.ocrVerification.flagged > 0)) {
+            html += '<div class="ocr-verify-banner">';
+            html += '<strong>🔍 OCR Verification Pass</strong>';
+            if (result.ocrVerification.corrected > 0) {
+              html += ` — <span class="ocr-auto">${result.ocrVerification.corrected} auto-corrected</span>`;
+            }
+            if (result.ocrVerification.flagged > 0) {
+              html += ` — <span class="ocr-flag">${result.ocrVerification.flagged} flagged for review</span>`;
+            }
+            html += '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:11px;">Show details</summary>';
+            html += '<table class="ocr-corrections-table" style="font-size:11px;margin-top:4px;width:100%;">';
+            html += '<tr><th>OCR Read</th><th>Corrected To</th><th>Why</th><th>Action</th></tr>';
+            (result.ocrVerification.corrections || []).forEach(function(c) {
+              var actionClass = c.action === 'auto_corrected' ? 'ocr-auto' :
+                                c.action === 'flagged_for_review' ? 'ocr-flag' : 'ocr-kept';
+              var actionLabel = c.action === 'auto_corrected' ? '✅ Auto-corrected' :
+                                c.action === 'flagged_for_review' ? '⚠️ Needs review' : '↩ Kept original';
+              html += '<tr>';
+              html += '<td><code style="color:#dc3545;">' + c.ocrValue + '</code></td>';
+              html += '<td><code style="color:#28a745;">' + c.expectedValue + '</code></td>';
+              html += '<td>' + (c.explanation || '') + '</td>';
+              html += '<td class="' + actionClass + '">' + actionLabel + '</td>';
+              html += '</tr>';
+            });
+            html += '</table></details></div>';
+          }
+          
+          html += '<table class="grading-table">';
           html += '<tr><th style="width: 60px;">Part</th><th style="width: 50px;">Mark</th><th>Requirement</th><th style="width: 70px;">Correct</th></tr>';
           
           result.results.forEach((res, idx) => {
