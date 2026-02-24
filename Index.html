@@ -274,6 +274,61 @@
         color: white;
       }
 
+      /* Grading progress overlay */
+      .grading-progress-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(255,255,255,0.95);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        border-radius: 6px;
+      }
+      .grading-progress-overlay .spinner {
+        width: 40px; height: 40px;
+        border: 4px solid #e0e0e0;
+        border-top-color: #007bff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-bottom: 16px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .grading-steps {
+        list-style: none;
+        padding: 0;
+        margin: 12px 0 0 0;
+        font-size: 13px;
+        line-height: 2;
+        text-align: left;
+        min-width: 280px;
+      }
+      .grading-steps li {
+        color: #999;
+        transition: color 0.3s;
+      }
+      .grading-steps li.active {
+        color: #007bff;
+        font-weight: 600;
+      }
+      .grading-steps li.done {
+        color: #28a745;
+      }
+      .grading-steps li::before {
+        content: '○ ';
+        font-size: 11px;
+      }
+      .grading-steps li.active::before {
+        content: '◉ ';
+        animation: pulse 1s ease-in-out infinite;
+      }
+      .grading-steps li.done::before {
+        content: '✓ ';
+        font-weight: bold;
+      }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
       /* OCR Verification banner */
       .ocr-verify-banner {
         margin-bottom: 12px;
@@ -436,6 +491,24 @@
           <span id="detected-question-code" style="margin-left: auto; font-size: 12px; color: #666;"></span>
         </div>
         
+        <!-- Grading Progress Overlay -->
+        <div id="grading-progress" style="display: none; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 20px; position: relative;">
+          <div style="display: flex; flex-direction: column; align-items: center; padding: 20px 0;">
+            <div class="spinner"></div>
+            <div style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">Grading in progress…</div>
+            <div id="grading-progress-detail" style="font-size: 12px; color: #666;"></div>
+            <ul class="grading-steps">
+              <li id="gp-step-load">Loading mark scheme points</li>
+              <li id="gp-step-clean">Cleaning student OCR text</li>
+              <li id="gp-step-verify">OCR verification pass (glyph check)</li>
+              <li id="gp-step-grade">Grading each mark against student work</li>
+              <li id="gp-step-implied">Checking implied marks</li>
+              <li id="gp-step-method">Selecting best method per part</li>
+              <li id="gp-step-score">Calculating final score</li>
+            </ul>
+          </div>
+        </div>
+
         <!-- Grading Results Panel (hidden by default) -->
         <div id="grading-results-panel" style="display: none; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
           <h4 style="margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
@@ -808,6 +881,56 @@
           .saveStudentOcrCorrection(currentStudentOcrData.fileId, correctedText);
       }
       
+      // Grading progress animation
+      var gradingProgressTimer_ = null;
+      
+      function showGradingProgress_() {
+        var panel = document.getElementById('grading-progress');
+        panel.style.display = 'block';
+        // Reset all steps
+        var steps = ['gp-step-load','gp-step-clean','gp-step-verify','gp-step-grade','gp-step-implied','gp-step-method','gp-step-score'];
+        steps.forEach(function(id) {
+          var el = document.getElementById(id);
+          el.className = '';
+        });
+        // Animate steps with realistic timings (ms)
+        var timings = [0, 400, 1200, 2500, 5000, 7000, 8500];
+        var detailMsgs = [
+          'Fetching mark scheme data from Drive…',
+          'Removing printed question text…',
+          'Cross-checking digits with glyph confusion matrix…',
+          'Comparing student answers to each marking point…',
+          'Checking if correct answers imply earlier steps…',
+          'Picking highest-scoring method per part…',
+          'Totalling marks…'
+        ];
+        var detailEl = document.getElementById('grading-progress-detail');
+        gradingProgressTimer_ = [];
+        steps.forEach(function(id, i) {
+          var t = setTimeout(function() {
+            // Mark previous as done
+            if (i > 0) document.getElementById(steps[i-1]).className = 'done';
+            document.getElementById(id).className = 'active';
+            detailEl.textContent = detailMsgs[i];
+          }, timings[i]);
+          gradingProgressTimer_.push(t);
+        });
+      }
+      
+      function hideGradingProgress_() {
+        // Clear any pending timers
+        (gradingProgressTimer_ || []).forEach(clearTimeout);
+        gradingProgressTimer_ = null;
+        // Mark all steps done
+        var steps = ['gp-step-load','gp-step-clean','gp-step-verify','gp-step-grade','gp-step-implied','gp-step-method','gp-step-score'];
+        steps.forEach(function(id) { document.getElementById(id).className = 'done'; });
+        document.getElementById('grading-progress-detail').textContent = 'Done!';
+        // Hide after a brief flash of "Done!"
+        setTimeout(function() {
+          document.getElementById('grading-progress').style.display = 'none';
+        }, 600);
+      }
+
       function gradeStudentWork() {
         if (!currentStudentOcrData) {
           alert('No student work loaded. Please run OCR first.');
@@ -829,6 +952,7 @@
         
         log(`🎯 Grading student work for ${questionCode}...`, 'info');
         document.getElementById('grade-student-work-btn').disabled = true;
+        showGradingProgress_();
         
         // Store for use in the grading modal
         currentStudentOcrData.questionCode = questionCode;
@@ -837,6 +961,7 @@
         google.script.run
           .withSuccessHandler(handleGradingResult)
           .withFailureHandler(err => {
+            hideGradingProgress_();
             log(`❌ Grading failed: ${err.message}`, 'error');
             document.getElementById('grade-student-work-btn').disabled = false;
             alert(`Grading error: ${err.message}`);
@@ -870,6 +995,7 @@
       }
       
       function handleGradingResult(result) {
+        hideGradingProgress_();
         document.getElementById('grade-student-work-btn').disabled = false;
         
         if (result.status === 'success') {
