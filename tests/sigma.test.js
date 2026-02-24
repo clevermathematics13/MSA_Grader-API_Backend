@@ -35,18 +35,20 @@ function parseSigmaExpression_(text) {
     .replace(/\\{|\\}/g, '')
     .replace(/\s+/g, ' ');
 
-  var patA = /∑\s*_?\s*\{?\s*([a-zA-Z])\s*=\s*(-?\d+)\s*\}?\s*\^?\s*\{?\s*(-?\d+)\s*\}?\s*(.+?)(?:\s+or\s+|$)/i;
+  var BODY_TERMINATORS = '(?:\\s+or\\s+|\\\\\\)|\\\\\\]|\\\\\\(|\\$|\\(\\s*[a-z]\\s*\\)|\\(\\s*[ivx]+\\s*\\)|$)';
+  var patA = new RegExp(
+    '∑\\s*_?\\s*\\{?\\s*([a-zA-Z])\\s*=\\s*(-?\\d+)\\s*\\}?\\s*\\^?\\s*\\{?\\s*(-?\\d+)\\s*\\}?\\s*' +
+    '(.+?)' + BODY_TERMINATORS, 'i'
+  );
   var mA = t.match(patA);
-  if (!mA) {
-    patA = /∑\s*_?\s*\{?\s*([a-zA-Z])\s*=\s*(-?\d+)\s*\}?\s*\^?\s*\{?\s*(-?\d+)\s*\}?\s*(.+)/i;
-    mA = t.match(patA);
-  }
   if (mA) {
+    var rawBody = mA[4].trim();
+    if (!rawBody) return null;
     return {
       variable: mA[1],
       lower: parseInt(mA[2], 10),
       upper: parseInt(mA[3], 10),
-      body: normaliseBody_(mA[4].trim(), mA[1])
+      body: normaliseBody_(rawBody, mA[1])
     };
   }
   return null;
@@ -301,5 +303,40 @@ describe("end-to-end sigma equivalence", () => {
     var alt = parseSigmaExpression_("∑_{n=0}^{26}(14+7n)");
     expect(alt).not.toBeNull();
     expect(evaluateSigma_(alt)).toBe(2835);
+  });
+
+  test("parses sigma from full student OCR text (stops at \\))", () => {
+    // This is the ACTUAL student OCR text that caused the bug.
+    // parseSigmaExpression_ must extract just "7 i" as the body,
+    // NOT swallow the rest of the document.
+    var fullText = '(a) (i) \\( 14+\\cdots+196=2835 \\)\n' +
+      '(ii) \\( \\sum_{i=2}^{28} 7 i \\)\n' +
+      '(b) \\( \\frac{n}{2}(2000-6(n+1))<0 \\)\n' +
+      '\\[\nn>334, \\overline{3}\n\\]\n\\( n=335 \\)';
+
+    var sigma = parseSigmaExpression_(fullText);
+    expect(sigma).not.toBeNull();
+    expect(sigma.variable).toBe('i');
+    expect(sigma.lower).toBe(2);
+    expect(sigma.upper).toBe(28);
+    expect(sigma.body).toBe('7*i');
+    expect(evaluateSigma_(sigma)).toBe(2835);
+  });
+
+  test("full pipeline: mark scheme req vs full student OCR text → match", () => {
+    var reqText = "∑_{n=1}^{27}(7+7n) or equivalent";
+    var fullStudentText = '(a) (i) \\( 14+\\cdots+196=2835 \\)\n' +
+      '(ii) \\( \\sum_{i=2}^{28} 7 i \\)\n' +
+      '(b) \\( \\frac{n}{2}(2000-6(n+1))<0 \\)';
+
+    var reqSigma = parseSigmaExpression_(reqText);
+    var stuSigma = parseSigmaExpression_(fullStudentText);
+
+    expect(reqSigma).not.toBeNull();
+    expect(stuSigma).not.toBeNull();
+
+    expect(evaluateSigma_(reqSigma)).toBe(2835);
+    expect(evaluateSigma_(stuSigma)).toBe(2835);
+    expect(evaluateSigma_(reqSigma)).toBe(evaluateSigma_(stuSigma));
   });
 });

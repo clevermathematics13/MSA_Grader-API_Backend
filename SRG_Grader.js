@@ -389,21 +389,31 @@ function parseSigmaExpression_(text) {
 
   // Pattern A:  ∑ _{var=lower}^{upper} body
   // Covers:  ∑_{n=1}^{27}(7+7n)   and   ∑ _{i=2}^{28} 7i
-  var patA = /∑\s*_?\s*\{?\s*([a-zA-Z])\s*=\s*(-?\d+)\s*\}?\s*\^?\s*\{?\s*(-?\d+)\s*\}?\s*(.+?)(?:\s+or\s+|$)/i;
+  //
+  // The body capture must be BOUNDED so it doesn't swallow the rest
+  // of a long student OCR string.  We stop at:
+  //   - " or "          (mark-scheme "or equivalent")
+  //   - \)  or  \\)     (LaTeX inline-math closer)
+  //   - \]  or  \\]     (LaTeX display-math closer)
+  //   - (a) (b) (i) etc (next part marker)
+  //   - end of string
+  var BODY_TERMINATORS = '(?:\\s+or\\s+|\\\\\\)|\\\\\\]|\\\\\\(|\\$|\\(\\s*[a-z]\\s*\\)|\\(\\s*[ivx]+\\s*\\)|$)';
+
+  var patA = new RegExp(
+    '∑\\s*_?\\s*\\{?\\s*([a-zA-Z])\\s*=\\s*(-?\\d+)\\s*\\}?\\s*\\^?\\s*\\{?\\s*(-?\\d+)\\s*\\}?\\s*' +
+    '(.+?)' + BODY_TERMINATORS, 'i'
+  );
   var mA = t.match(patA);
-  if (!mA) {
-    // Pattern B: looser — ∑ body with limits on separate tokens
-    // e.g. "∑ (7 + 7n)  n=1  27"   or  OCR variants
-    patA = /∑\s*_?\s*\{?\s*([a-zA-Z])\s*=\s*(-?\d+)\s*\}?\s*\^?\s*\{?\s*(-?\d+)\s*\}?\s*(.+)/i;
-    mA = t.match(patA);
-  }
 
   if (mA) {
+    var rawBody = mA[4].trim();
+    // If the body is empty after trimming, the regex grabbed nothing useful
+    if (!rawBody) return null;
     return {
       variable: mA[1],
       lower: parseInt(mA[2], 10),
       upper: parseInt(mA[3], 10),
-      body: normaliseBody_(mA[4].trim(), mA[1])
+      body: normaliseBody_(rawBody, mA[1])
     };
   }
 
