@@ -673,27 +673,8 @@
         const fileId = prompt("Enter the Google Drive File ID of a student work image:", "");
         if (!fileId) return;
         
-        // Ask if user wants to specify a crop region manually
-        const useCrop = confirm("Do you want to manually specify the answer box region?\n\nClick OK to enter coordinates, or Cancel to auto-detect markers.");
-        
+        // Always auto-detect markers (no manual crop prompt)
         let cropRegion = null;
-        if (useCrop) {
-          const x1 = prompt("Enter left X coordinate (pixels from left):", "200");
-          const y1 = prompt("Enter top Y coordinate (pixels from top):", "350");
-          const x2 = prompt("Enter right X coordinate:", "450");
-          const y2 = prompt("Enter bottom Y coordinate:", "600");
-          
-          if (x1 && y1 && x2 && y2) {
-            cropRegion = {
-              x1: parseInt(x1),
-              y1: parseInt(y1),
-              x2: parseInt(x2),
-              y2: parseInt(y2),
-              width: parseInt(x2) - parseInt(x1),
-              height: parseInt(y2) - parseInt(y1)
-            };
-          }
-        }
         
         log('🔍 Starting OCR test on student work...', 'info');
         document.getElementById('test-student-ocr-btn').disabled = true;
