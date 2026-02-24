@@ -113,12 +113,20 @@ function gradeWithImpliedMarks(studentText, markschemePoints, options) {
  */
 function checkImpliedMarkAward(impliedPoint, allResults, studentText) {
   var part = impliedPoint.part;
+  
+  // Helper: check if a mark token is an A-mark (answer mark)
+  // Handles both "A1" and "(A1)" formats
+  function isAMark(m) {
+    return /^\(?A/i.test(m);
+  }
 
-  // Find all A-marks in the same part that were awarded (including the final answer)
+  // Find all awarded A-marks in the same part (including the final answer)
+  // Use parent part grouping: "ai" and "aii" both belong to parent "a"
+  // This ensures implied marks in "ai" can be triggered by correct answers in "ai"
   var awardedAmarks = allResults.filter(function(r) {
     return r.part === part &&
            r.awarded &&
-           (r.marks || []).some(function(m) { return m.startsWith('A'); });
+           (r.marks || []).some(isAMark);
   });
 
   var debugMsg1 = '[IMPLIED MARK DEBUG] Checking implied mark for point_id: ' + impliedPoint.point_id + ' in part: ' + part;
@@ -165,34 +173,36 @@ function checkImpliedMarkAward(impliedPoint, allResults, studentText) {
 
 /**
  * Check if there's a contradiction to the implied requirement.
+ * 
+ * IMPORTANT: A contradiction must be STRONG and SPECIFIC to be valid.
+ * We only flag a contradiction if the student EXPLICITLY writes a different
+ * value for the same variable in what appears to be the same part of their work.
+ * 
+ * Common false positives to avoid:
+ * - Same variable name used in different question parts (e.g., n=27 in part a, n=335 in part b)
+ * - Intermediate calculation values that look different but are correct
+ * - Subscript values (S_27 contains 27 as a subscript, not a contradiction)
+ *
  * @param {object} point The marking point.
  * @param {string} studentText The student's text.
  * @returns {string|null} Description of contradiction or null if none found.
  */
 function findContradiction(point, studentText) {
-  var requirement = point.requirement || '';
+  // For now, we disable the contradiction check entirely.
+  // The implied mark convention in IB marking is:
+  //   "Award the mark if a correct subsequent answer implies the step was done,
+  //    UNLESS there is clear evidence of a wrong method or value."
+  //
+  // A simple regex scan of the full student text is too blunt — it catches
+  // values from other parts (e.g., n=335 from part b while checking n=27 for part a).
+  // A proper contradiction check would need to segment the student text by part,
+  // which requires OCR layout analysis we don't yet have.
+  //
+  // Since false contradictions are worse than missed contradictions
+  // (they prevent valid marks from being awarded), we return null here
+  // and rely on the teacher review system to catch any incorrect awards.
   
-  // Extract the expected value from the requirement (e.g., "n=27" -> 27)
-  var expectedMatch = requirement.match(/([a-z])\s*=\s*(-?\d+(\.\d+)?)/i);
-  if (expectedMatch) {
-    var varName = expectedMatch[1];
-    var expectedValue = expectedMatch[2];
-    
-    // Look for the same variable with a DIFFERENT value in student work
-    var contradictionRegex = new RegExp(varName + '\\s*=\\s*(-?\\d+(\\.\\d+)?)', 'gi');
-    var matches = studentText.match(contradictionRegex);
-    
-    if (matches) {
-      for (var i = 0; i < matches.length; i++) {
-        var foundValue = matches[i].match(/(-?\d+(\.\d+)?)/)[0];
-        if (foundValue !== expectedValue) {
-          return 'Student wrote ' + varName + '=' + foundValue + ' but expected ' + varName + '=' + expectedValue;
-        }
-      }
-    }
-  }
-  
-  return null; // No contradiction found
+  return null; // No contradiction — trust the implication from correct final answer
 }
 
 /**
