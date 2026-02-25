@@ -111,13 +111,38 @@
         overflow: hidden;
       }
       .grading-pane {
-        flex: 1;
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        border-right: 1px solid #ddd;
+        min-width: 120px;
       }
-      .grading-pane:last-child { border-right: none; }
+      .grading-splitter {
+        width: 6px;
+        cursor: col-resize;
+        background: #ddd;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 5;
+        transition: background 0.15s;
+      }
+      .grading-splitter:hover,
+      .grading-splitter.active {
+        background: #667eea;
+      }
+      .grading-splitter::after {
+        content: '⋮';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #999;
+        font-size: 14px;
+        pointer-events: none;
+      }
+      .grading-splitter:hover::after,
+      .grading-splitter.active::after {
+        color: #fff;
+      }
       .grading-pane-header {
         display: flex;
         justify-content: space-between;
@@ -166,8 +191,7 @@
         border: none;
       }
       .grading-results-pane {
-        width: 350px;
-        min-width: 350px;
+        min-width: 250px;
         display: flex;
         flex-direction: column;
       }
@@ -555,7 +579,7 @@
         </div>
         <div class="grading-body">
           <!-- Left Pane: Student Work -->
-          <div class="grading-pane">
+          <div class="grading-pane" id="left-pane">
             <div class="grading-pane-header">
               <h4>📝 Student Work</h4>
               <div style="display:flex; gap:8px; align-items:center;">
@@ -574,8 +598,10 @@
             </div>
           </div>
           
+          <div class="grading-splitter" id="splitter-left"></div>
+          
           <!-- Middle Pane: Mark Scheme -->
-          <div class="grading-pane">
+          <div class="grading-pane" id="middle-pane">
             <div class="grading-pane-header">
               <h4>📋 Mark Scheme</h4>
             </div>
@@ -584,8 +610,10 @@
             </div>
           </div>
           
+          <div class="grading-splitter" id="splitter-right"></div>
+          
           <!-- Right Pane: Grading Results -->
-          <div class="grading-pane grading-results-pane">
+          <div class="grading-pane grading-results-pane" id="right-pane">
             <div class="score-header">
               <div class="score-big" id="grading-score-display">- / -</div>
               <div id="grading-percentage" style="font-size: 14px; color: #666;">-</div>
@@ -655,6 +683,89 @@
       document.getElementById('zoom-reset-btn').addEventListener('click', function() {
         currentZoom_ = 1.0; applyZoom_();
       });
+
+      // --- Resizable splitters ---
+      (function initSplitters() {
+        var leftPane   = document.getElementById('left-pane');
+        var middlePane = document.getElementById('middle-pane');
+        var rightPane  = document.getElementById('right-pane');
+        var splitterL  = document.getElementById('splitter-left');
+        var splitterR  = document.getElementById('splitter-right');
+        var body       = document.querySelector('.grading-body');
+        var activeSplitter = null;
+        var startX = 0;
+        var startLeftW = 0, startMiddleW = 0, startRightW = 0;
+
+        function initPaneWidths() {
+          var totalW = body.clientWidth - 12; // minus 2 splitters × 6px
+          leftPane.style.width   = Math.round(totalW * 0.35) + 'px';
+          middlePane.style.width = Math.round(totalW * 0.35) + 'px';
+          rightPane.style.width  = Math.round(totalW * 0.30) + 'px';
+          leftPane.style.flex   = 'none';
+          middlePane.style.flex = 'none';
+          rightPane.style.flex  = 'none';
+        }
+
+        function onMouseDown(e) {
+          e.preventDefault();
+          activeSplitter = e.target;
+          activeSplitter.classList.add('active');
+          startX = e.clientX;
+          startLeftW   = leftPane.offsetWidth;
+          startMiddleW = middlePane.offsetWidth;
+          startRightW  = rightPane.offsetWidth;
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
+          // Disable pointer events on iframes during drag
+          var iframes = body.querySelectorAll('iframe');
+          for (var i = 0; i < iframes.length; i++) iframes[i].style.pointerEvents = 'none';
+        }
+
+        function onMouseMove(e) {
+          if (!activeSplitter) return;
+          var dx = e.clientX - startX;
+          var minW = 120;
+          if (activeSplitter === splitterL) {
+            var newLeft = Math.max(minW, startLeftW + dx);
+            var newMiddle = Math.max(minW, startMiddleW - dx);
+            if (newLeft >= minW && newMiddle >= minW) {
+              leftPane.style.width   = newLeft + 'px';
+              middlePane.style.width = newMiddle + 'px';
+            }
+          } else if (activeSplitter === splitterR) {
+            var newMiddle2 = Math.max(minW, startMiddleW + dx);
+            var newRight   = Math.max(minW, startRightW - dx);
+            if (newMiddle2 >= minW && newRight >= minW) {
+              middlePane.style.width = newMiddle2 + 'px';
+              rightPane.style.width  = newRight + 'px';
+            }
+          }
+        }
+
+        function onMouseUp() {
+          if (activeSplitter) activeSplitter.classList.remove('active');
+          activeSplitter = null;
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          var iframes = body.querySelectorAll('iframe');
+          for (var i = 0; i < iframes.length; i++) iframes[i].style.pointerEvents = '';
+        }
+
+        splitterL.addEventListener('mousedown', onMouseDown);
+        splitterR.addEventListener('mousedown', onMouseDown);
+
+        // Set initial widths when the grading modal becomes visible
+        var observer = new MutationObserver(function() {
+          if (document.getElementById('grading-modal-backdrop').style.display !== 'none') {
+            initPaneWidths();
+          }
+        });
+        observer.observe(document.getElementById('grading-modal-backdrop'), { attributes: true, attributeFilter: ['style'] });
+      })();
       document.getElementById('toggle-student-view-btn').addEventListener('click', toggleGradingStudentView);
 
       function log(message, type = '') {
