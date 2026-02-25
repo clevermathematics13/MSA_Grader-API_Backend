@@ -746,7 +746,6 @@
         const fileId = prompt("Enter the Google Drive File ID of a student work image:", "");
         if (!fileId) return;
         
-        // Always auto-detect markers (no manual crop prompt)
         let cropRegion = null;
         
         log('🔍 Starting OCR test on student work...', 'info');
