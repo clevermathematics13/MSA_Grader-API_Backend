@@ -1,0 +1,9 @@
+tests/**
+node_modules/**
+.git/**
+*.test.js
+package.json
+package-lock.json
+jest.config.*
+.eslintrc*
+README*
