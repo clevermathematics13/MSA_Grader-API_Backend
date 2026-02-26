@@ -46,8 +46,15 @@
       .student-ocr-sections { display: flex; gap: 20px; flex: 1; min-height: 0; }
       .student-ocr-section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
       .student-ocr-section h4 { margin-top: 0; }
-      .image-preview-container { flex: 1; overflow: auto; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; display: flex; align-items: center; justify-content: center; min-height: 200px; }
-      .image-preview-container img { max-width: 100%; max-height: 100%; object-fit: contain; }
+      .image-preview-container { flex: 1; overflow: auto; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; display: flex; align-items: center; justify-content: center; min-height: 200px; position: relative; }
+      .image-preview-container img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s ease; transform-origin: top left; }
+      .image-preview-container.zoomed { align-items: flex-start; justify-content: flex-start; cursor: grab; }
+      .image-preview-container.zoomed:active { cursor: grabbing; }
+      .image-preview-container.zoomed img { max-width: none; max-height: none; object-fit: unset; }
+      .zoom-toolbar { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; }
+      .zoom-toolbar button { padding: 4px 10px; font-size: 16px; background: #e9ecef; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer; line-height: 1; min-width: 32px; }
+      .zoom-toolbar button:hover { background: #dee2e6; }
+      .zoom-toolbar .zoom-level { font-size: 12px; color: #666; min-width: 42px; text-align: center; }
       #student-ocr-textarea { width: 100%; flex: 1; font-family: 'Courier New', monospace; font-size: 13px; resize: none; }
       .ocr-meta { font-size: 12px; color: #666; margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 4px; }
       .confidence-indicator { display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
@@ -532,8 +539,16 @@
         <div class="student-ocr-content">
           <div class="student-ocr-sections">
             <div class="student-ocr-section">
-              <h4>Original Image</h4>
-              <div class="image-preview-container">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h4 style="margin-top: 0;">Original Image</h4>
+                <div class="zoom-toolbar">
+                  <button id="zoom-out-btn" title="Zoom out">−</button>
+                  <span id="zoom-level-display" class="zoom-level">Fit</span>
+                  <button id="zoom-in-btn" title="Zoom in">+</button>
+                  <button id="zoom-fit-btn" title="Fit to view" style="font-size: 13px;">⊞ Fit</button>
+                </div>
+              </div>
+              <div class="image-preview-container" id="image-preview-container">
                 <img id="student-work-image" src="" alt="Student work will appear here">
               </div>
             </div>
@@ -679,6 +694,70 @@
       document.getElementById('close-compare-btn').addEventListener('click', () => { document.getElementById('compare-modal-backdrop').style.display = 'none'; });
       document.getElementById('test-student-ocr-btn').addEventListener('click', testStudentOcr);
       document.getElementById('close-student-ocr-btn').addEventListener('click', () => { document.getElementById('student-ocr-modal-backdrop').style.display = 'none'; });
+
+      // ── Zoom controls for student work image ──
+      (function() {
+        var zoomScale = 0; // 0 = fit mode
+        var ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+        var zoomIndex = 3; // default 100%
+        var container = document.getElementById('image-preview-container');
+        var img = document.getElementById('student-work-image');
+        var display = document.getElementById('zoom-level-display');
+
+        function setFitMode() {
+          zoomScale = 0;
+          container.classList.remove('zoomed');
+          img.style.width = '';
+          img.style.height = '';
+          display.textContent = 'Fit';
+        }
+
+        function setZoom(scale) {
+          zoomScale = scale;
+          container.classList.add('zoomed');
+          img.style.width = (img.naturalWidth * scale) + 'px';
+          img.style.height = 'auto';
+          display.textContent = Math.round(scale * 100) + '%';
+        }
+
+        function findClosestIndex(scale) {
+          var best = 0;
+          for (var i = 0; i < ZOOM_STEPS.length; i++) {
+            if (Math.abs(ZOOM_STEPS[i] - scale) < Math.abs(ZOOM_STEPS[best] - scale)) best = i;
+          }
+          return best;
+        }
+
+        document.getElementById('zoom-in-btn').addEventListener('click', function() {
+          if (zoomScale === 0) {
+            // Going from fit → find the fit-equivalent scale and step up
+            var fitScale = container.clientWidth / (img.naturalWidth || 1);
+            zoomIndex = findClosestIndex(fitScale);
+            if (zoomIndex < ZOOM_STEPS.length - 1) zoomIndex++;
+          } else {
+            zoomIndex = findClosestIndex(zoomScale);
+            if (zoomIndex < ZOOM_STEPS.length - 1) zoomIndex++;
+          }
+          setZoom(ZOOM_STEPS[zoomIndex]);
+        });
+
+        document.getElementById('zoom-out-btn').addEventListener('click', function() {
+          if (zoomScale === 0) {
+            var fitScale = container.clientWidth / (img.naturalWidth || 1);
+            zoomIndex = findClosestIndex(fitScale);
+            if (zoomIndex > 0) zoomIndex--;
+          } else {
+            zoomIndex = findClosestIndex(zoomScale);
+            if (zoomIndex > 0) zoomIndex--;
+          }
+          setZoom(ZOOM_STEPS[zoomIndex]);
+        });
+
+        document.getElementById('zoom-fit-btn').addEventListener('click', setFitMode);
+
+        // Reset to fit when a new image loads
+        img.addEventListener('load', setFitMode);
+      })();
       document.getElementById('save-student-ocr-btn').addEventListener('click', saveStudentOcrCorrection);
       document.getElementById('grade-student-work-btn').addEventListener('click', gradeStudentWork);
       document.getElementById('close-grading-btn').addEventListener('click', () => { document.getElementById('grading-modal-backdrop').style.display = 'none'; });
