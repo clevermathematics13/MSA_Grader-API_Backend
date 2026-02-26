@@ -455,6 +455,23 @@
       <h3>Student Work OCR Test</h3>
       <p style="margin: 5px 0; color: #666; font-size: 13px;">Test OCR on a single student work image (single-question test case)</p>
       <button id="test-student-ocr-btn">Test Student Work OCR</button>
+      
+      <!-- OCR Progress Panel -->
+      <div id="ocr-progress" style="display: none; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 20px; position: relative;">
+        <div style="display: flex; flex-direction: column; align-items: center; padding: 20px 0;">
+          <div class="spinner"></div>
+          <div style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">OCR in progress…</div>
+          <div id="ocr-progress-detail" style="font-size: 12px; color: #666;"></div>
+          <ul class="grading-steps">
+            <li id="ocr-step-fetch">Fetching image from Drive</li>
+            <li id="ocr-step-detect">Detecting QR markers</li>
+            <li id="ocr-step-crop">Cropping to work region</li>
+            <li id="ocr-step-ocr">Running Mathpix OCR</li>
+            <li id="ocr-step-parse">Parsing LaTeX output</li>
+            <li id="ocr-step-done">Finalizing results</li>
+          </ul>
+        </div>
+      </div>
     </div>
 
     <div id="status-container">
@@ -907,6 +924,56 @@
       }
       
       // Student OCR Test Functions
+      
+      // OCR progress animation
+      var ocrProgressTimer_ = null;
+      
+      function showOcrProgress_() {
+        var panel = document.getElementById('ocr-progress');
+        panel.style.display = 'block';
+        // Reset all steps
+        var steps = ['ocr-step-fetch','ocr-step-detect','ocr-step-crop','ocr-step-ocr','ocr-step-parse','ocr-step-done'];
+        steps.forEach(function(id) {
+          var el = document.getElementById(id);
+          el.className = '';
+        });
+        // Animate steps with realistic timings (ms)
+        var timings = [0, 500, 1500, 2500, 5000, 7500];
+        var detailMsgs = [
+          'Loading image from Google Drive…',
+          'Scanning for QR code markers…',
+          'Cropping image to student work region…',
+          'Sending to Mathpix OCR engine…',
+          'Converting handwriting to LaTeX…',
+          'Preparing results for display…'
+        ];
+        var detailEl = document.getElementById('ocr-progress-detail');
+        ocrProgressTimer_ = [];
+        steps.forEach(function(id, i) {
+          var t = setTimeout(function() {
+            // Mark previous as done
+            if (i > 0) document.getElementById(steps[i-1]).className = 'done';
+            document.getElementById(id).className = 'active';
+            detailEl.textContent = detailMsgs[i];
+          }, timings[i]);
+          ocrProgressTimer_.push(t);
+        });
+      }
+      
+      function hideOcrProgress_() {
+        // Clear any pending timers
+        (ocrProgressTimer_ || []).forEach(clearTimeout);
+        ocrProgressTimer_ = null;
+        // Mark all steps done
+        var steps = ['ocr-step-fetch','ocr-step-detect','ocr-step-crop','ocr-step-ocr','ocr-step-parse','ocr-step-done'];
+        steps.forEach(function(id) { document.getElementById(id).className = 'done'; });
+        document.getElementById('ocr-progress-detail').textContent = 'Done!';
+        // Hide after a brief flash of "Done!"
+        setTimeout(function() {
+          document.getElementById('ocr-progress').style.display = 'none';
+        }, 600);
+      }
+      
       function testStudentOcr() {
         const fileId = prompt("Enter the Google Drive File ID of a student work image:", "");
         if (!fileId) return;
@@ -915,10 +982,12 @@
         
         log('🔍 Starting OCR test on student work...', 'info');
         document.getElementById('test-student-ocr-btn').disabled = true;
+        showOcrProgress_();
         
         google.script.run
           .withSuccessHandler(handleStudentOcrResult)
           .withFailureHandler(err => {
+            hideOcrProgress_();
             log(`❌ OCR test failed: ${err.message}`, 'error');
             document.getElementById('test-student-ocr-btn').disabled = false;
             alert(`Error: ${err.message}`);
@@ -927,6 +996,7 @@
       }
       
       function handleStudentOcrResult(result) {
+        hideOcrProgress_();
         document.getElementById('test-student-ocr-btn').disabled = false;
         
         if (result.status === 'success') {
