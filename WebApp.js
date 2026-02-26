@@ -820,22 +820,40 @@ function decodeQrFromImage(fileId) {
     var blobSize = blobBytes.length;
     msaLog_('QR decode: fileId=' + fileId + ', blob size=' + blobSize + ', contentType=' + blob.getContentType());
     
-    // If image is larger than 500KB, resize it down using Google Slides trick
-    // Large images overwhelm the free QR API
+    // If image is larger than 500KB, get a smaller version for QR scanning
+    // Large images overwhelm the free QR API (returns HTTP 400)
     var sendBlob = blob;
     if (blobSize > 500000) {
-      msaLog_('QR decode: Image too large (' + Math.round(blobSize/1024) + 'KB), creating thumbnail for QR scan...');
+      msaLog_('QR decode: Image too large (' + Math.round(blobSize/1024) + 'KB), getting thumbnail for QR scan...');
       try {
-        // Use Drive thumbnail API to get a smaller version
-        var thumbMeta = Drive.Files.get(fileId, { fields: 'thumbnailLink' });
-        if (thumbMeta.thumbnailLink) {
-          // Request a larger thumbnail (s800 = 800px on longest side)
-          var thumbUrl = thumbMeta.thumbnailLink.replace('=s220', '=s800');
-          var thumbResponse = UrlFetchApp.fetch(thumbUrl, { muteHttpExceptions: true });
-          if (thumbResponse.getResponseCode() === 200) {
-            sendBlob = thumbResponse.getBlob().setName('thumb.png');
-            msaLog_('QR decode: Using thumbnail (' + Math.round(sendBlob.getBytes().length/1024) + 'KB)');
+        // Use Drive REST API v3 via UrlFetchApp (no advanced service needed)
+        var token = ScriptApp.getOAuthToken();
+        var metaUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
+        var metaResp = UrlFetchApp.fetch(metaUrl, {
+          headers: { 'Authorization': 'Bearer ' + token },
+          muteHttpExceptions: true
+        });
+        
+        if (metaResp.getResponseCode() === 200) {
+          var meta = JSON.parse(metaResp.getContentText());
+          msaLog_('QR decode: Got metadata, thumbnailLink=' + (meta.thumbnailLink ? 'yes' : 'no'));
+          
+          if (meta.thumbnailLink) {
+            // Request a larger thumbnail (s800 = 800px on longest side)
+            var thumbUrl = meta.thumbnailLink.replace('=s220', '=s800');
+            var thumbResponse = UrlFetchApp.fetch(thumbUrl, {
+              headers: { 'Authorization': 'Bearer ' + token },
+              muteHttpExceptions: true
+            });
+            if (thumbResponse.getResponseCode() === 200) {
+              sendBlob = thumbResponse.getBlob().setName('thumb.png');
+              msaLog_('QR decode: Using thumbnail (' + Math.round(sendBlob.getBytes().length/1024) + 'KB)');
+            } else {
+              msaLog_('QR decode: Thumbnail fetch returned HTTP ' + thumbResponse.getResponseCode());
+            }
           }
+        } else {
+          msaLog_('QR decode: Drive metadata request returned HTTP ' + metaResp.getResponseCode());
         }
       } catch (thumbErr) {
         msaLog_('QR decode: Thumbnail fallback failed: ' + thumbErr.message + ', using original');
