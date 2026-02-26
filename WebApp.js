@@ -839,17 +839,28 @@ function decodeQrFromImage(fileId) {
           msaLog_('QR decode: Got metadata, thumbnailLink=' + (meta.thumbnailLink ? 'yes' : 'no'));
           
           if (meta.thumbnailLink) {
-            // Request a larger thumbnail (s800 = 800px on longest side)
-            var thumbUrl = meta.thumbnailLink.replace('=s220', '=s800');
-            var thumbResponse = UrlFetchApp.fetch(thumbUrl, {
-              headers: { 'Authorization': 'Bearer ' + token },
-              muteHttpExceptions: true
-            });
-            if (thumbResponse.getResponseCode() === 200) {
-              sendBlob = thumbResponse.getBlob().setName('thumb.png');
-              msaLog_('QR decode: Using thumbnail (' + Math.round(sendBlob.getBytes().length/1024) + 'KB)');
-            } else {
-              msaLog_('QR decode: Thumbnail fetch returned HTTP ' + thumbResponse.getResponseCode());
+            // Try progressively larger thumbnails until QR is readable
+            // At 800px the QR code is too small (~30px); 1600-2000px should work
+            var sizes = ['s2000', 's1600', 's1200'];
+            for (var si = 0; si < sizes.length; si++) {
+              var thumbUrl = meta.thumbnailLink.replace('=s220', '=' + sizes[si]);
+              msaLog_('QR decode: Trying thumbnail at ' + sizes[si] + '...');
+              var thumbResponse = UrlFetchApp.fetch(thumbUrl, {
+                headers: { 'Authorization': 'Bearer ' + token },
+                muteHttpExceptions: true
+              });
+              if (thumbResponse.getResponseCode() === 200) {
+                var thumbBlob = thumbResponse.getBlob().setName('thumb.png');
+                var thumbSize = thumbBlob.getBytes().length;
+                msaLog_('QR decode: Got thumbnail at ' + sizes[si] + ' (' + Math.round(thumbSize/1024) + 'KB)');
+                // Only use if under 1MB (QR API limit)
+                if (thumbSize < 1000000) {
+                  sendBlob = thumbBlob;
+                  break;
+                } else {
+                  msaLog_('QR decode: Thumbnail too large (' + Math.round(thumbSize/1024) + 'KB), trying smaller...');
+                }
+              }
             }
           }
         } else {
