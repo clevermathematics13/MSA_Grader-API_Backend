@@ -196,9 +196,15 @@ function testStudentWorkOcr(fileId, options = {}) {
     if (!detectedQuestionCode) {
       msaLog_('No question code provided, attempting QR detection...');
       var qrData = decodeQrFromImage(fileId);
-      if (qrData && qrData.questionCode) {
-        detectedQuestionCode = qrData.questionCode;
-        msaLog_('Detected question code from QR: ' + detectedQuestionCode);
+      if (qrData) {
+        // Accept both questionCode and q
+        if (qrData.questionCode) {
+          detectedQuestionCode = qrData.questionCode;
+          msaLog_('Detected question code from QR (questionCode): ' + detectedQuestionCode);
+        } else if (qrData.q) {
+          detectedQuestionCode = qrData.q;
+          msaLog_('Detected question code from QR (q): ' + detectedQuestionCode);
+        }
       }
     }
     
