@@ -464,11 +464,15 @@
           <div id="ocr-progress-detail" style="font-size: 12px; color: #666;"></div>
           <ul class="grading-steps">
             <li id="ocr-step-fetch">Fetching image from Drive</li>
-            <li id="ocr-step-detect">Detecting QR markers</li>
-            <li id="ocr-step-crop">Cropping to work region</li>
-            <li id="ocr-step-ocr">Running Mathpix OCR</li>
-            <li id="ocr-step-parse">Parsing LaTeX output</li>
-            <li id="ocr-step-done">Finalizing results</li>
+            <li id="ocr-step-compress">Compressing image for processing</li>
+            <li id="ocr-step-ocr">Running Mathpix OCR (full page)</li>
+            <li id="ocr-step-qr">Decoding QR code for question ID</li>
+            <li id="ocr-step-position">Detecting question position (Q1 / Q2+)</li>
+            <li id="ocr-step-coords">Looking up answer box coordinates</li>
+            <li id="ocr-step-crop">Cropping OCR to answer region</li>
+            <li id="ocr-step-confidence">Calculating confidence score</li>
+            <li id="ocr-step-preview">Building image preview</li>
+            <li id="ocr-step-done">Returning results to UI</li>
           </ul>
         </div>
       </div>
@@ -932,20 +936,24 @@
         var panel = document.getElementById('ocr-progress');
         panel.style.display = 'block';
         // Reset all steps
-        var steps = ['ocr-step-fetch','ocr-step-detect','ocr-step-crop','ocr-step-ocr','ocr-step-parse','ocr-step-done'];
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-done'];
         steps.forEach(function(id) {
           var el = document.getElementById(id);
           el.className = '';
         });
-        // Animate steps with realistic timings (ms)
-        var timings = [0, 500, 1500, 2500, 5000, 7500];
+        // Animate steps with realistic timings matching actual backend flow (ms)
+        var timings = [0, 800, 1800, 4500, 7500, 8200, 9000, 9800, 10500, 12000];
         var detailMsgs = [
-          'Loading image from Google Drive…',
-          'Scanning for QR code markers…',
-          'Cropping image to student work region…',
-          'Sending to Mathpix OCR engine…',
-          'Converting handwriting to LaTeX…',
-          'Preparing results for display…'
+          'Loading student work image from Google Drive…',
+          'Image is large — resizing for optimal OCR…',
+          'Sending to Mathpix — converting handwriting to LaTeX…',
+          'Shrinking image & scanning QR code for question ID…',
+          'Checking for Section A header to determine Q1 vs Q2+…',
+          'Querying database for stored answer box coordinates…',
+          'Filtering OCR lines to just the answer region…',
+          'Analyzing text quality and computing confidence…',
+          'Encoding image preview for display…',
+          'Packaging results and sending to browser…'
         ];
         var detailEl = document.getElementById('ocr-progress-detail');
         ocrProgressTimer_ = [];
@@ -965,7 +973,7 @@
         (ocrProgressTimer_ || []).forEach(clearTimeout);
         ocrProgressTimer_ = null;
         // Mark all steps done
-        var steps = ['ocr-step-fetch','ocr-step-detect','ocr-step-crop','ocr-step-ocr','ocr-step-parse','ocr-step-done'];
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-done'];
         steps.forEach(function(id) { document.getElementById(id).className = 'done'; });
         document.getElementById('ocr-progress-detail').textContent = 'Done!';
         // Hide after a brief flash of "Done!"
