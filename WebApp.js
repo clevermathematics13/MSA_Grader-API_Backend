@@ -808,6 +808,7 @@ function lookupBoxCoordinates(questionCode, position) {
 
 /**
  * Decode QR code from an image using free QR API (api.qrserver.com)
+ * Resizes large images first to improve QR detection reliability.
  * @param {string} fileId The Google Drive File ID of the image
  * @returns {object|null} Decoded QR data {studentId, questionCode, examName} or null
  */
@@ -815,21 +816,64 @@ function decodeQrFromImage(fileId) {
   try {
     var file = DriveApp.getFileById(fileId);
     var blob = file.getBlob();
+    var blobBytes = blob.getBytes();
+    var blobSize = blobBytes.length;
+    msaLog_('QR decode: fileId=' + fileId + ', blob size=' + blobSize + ', contentType=' + blob.getContentType());
+    
+    // If image is larger than 500KB, resize it down using Google Slides trick
+    // Large images overwhelm the free QR API
+    var sendBlob = blob;
+    if (blobSize > 500000) {
+      msaLog_('QR decode: Image too large (' + Math.round(blobSize/1024) + 'KB), creating thumbnail for QR scan...');
+      try {
+        // Use Drive thumbnail API to get a smaller version
+        var thumbMeta = Drive.Files.get(fileId, { fields: 'thumbnailLink' });
+        if (thumbMeta.thumbnailLink) {
+          // Request a larger thumbnail (s800 = 800px on longest side)
+          var thumbUrl = thumbMeta.thumbnailLink.replace('=s220', '=s800');
+          var thumbResponse = UrlFetchApp.fetch(thumbUrl, { muteHttpExceptions: true });
+          if (thumbResponse.getResponseCode() === 200) {
+            sendBlob = thumbResponse.getBlob().setName('thumb.png');
+            msaLog_('QR decode: Using thumbnail (' + Math.round(sendBlob.getBytes().length/1024) + 'KB)');
+          }
+        }
+      } catch (thumbErr) {
+        msaLog_('QR decode: Thumbnail fallback failed: ' + thumbErr.message + ', using original');
+      }
+    }
     
     // Use free QR decoding API: api.qrserver.com
-    // This API accepts image uploads and decodes QR codes
     var qrApiUrl = 'https://api.qrserver.com/v1/read-qr-code/';
     
     var response = UrlFetchApp.fetch(qrApiUrl, {
       method: 'post',
       payload: {
-        file: blob
+        file: sendBlob
       },
       muteHttpExceptions: true
     });
     
-    var result = JSON.parse(response.getContentText());
-    msaLog_('QR API response: ' + JSON.stringify(result).substring(0, 500));
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+    msaLog_('QR decode: API response code=' + responseCode);
+    msaLog_('QR decode: API response (first 500 chars)=' + responseText.substring(0, 500));
+    
+    // Check for non-200 responses
+    if (responseCode !== 200) {
+      msaLog_('QR decode: API returned HTTP ' + responseCode + ', skipping QR detection');
+      return null;
+    }
+    
+    // Safely parse the response
+    var result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseErr) {
+      msaLog_('QR decode: API response is not valid JSON: ' + responseText.substring(0, 200));
+      return null;
+    }
+    
+    msaLog_('QR API parsed response: ' + JSON.stringify(result).substring(0, 500));
     
     // Response format: [{"type":"qrcode","symbol":[{"data":"...","error":null}]}]
     if (result && result[0] && result[0].symbol && result[0].symbol[0]) {
@@ -837,26 +881,25 @@ function decodeQrFromImage(fileId) {
       var qrError = result[0].symbol[0].error;
       
       if (qrError) {
-        msaLog_('QR decode error: ' + qrError);
+        msaLog_('QR decode: symbol error: ' + qrError);
         return null;
       }
       
       if (qrContent) {
-        msaLog_('QR raw content: ' + qrContent);
+        msaLog_('QR decode: raw content: ' + qrContent);
         
         // Parse the JSON content: {"s":"studentId","q":"questionCode","e":"examName"}
         try {
           var qrData = JSON.parse(qrContent);
-          msaLog_('Decoded QR data: ' + JSON.stringify(qrData));
+          msaLog_('QR decode: parsed data: ' + JSON.stringify(qrData));
           return {
-            studentId: qrData.s,
-            questionCode: qrData.q,
-            examName: qrData.e,
+            studentId: qrData.s || qrData.studentId,
+            questionCode: qrData.q || qrData.questionCode,
+            examName: qrData.e || qrData.examName,
             raw: qrData
           };
         } catch (e) {
-          msaLog_('QR content is not JSON: ' + qrContent);
-          // Maybe it's just the question code directly?
+          msaLog_('QR decode: content is not JSON, treating as raw question code: ' + qrContent);
           return {
             questionCode: qrContent
           };
@@ -864,10 +907,10 @@ function decodeQrFromImage(fileId) {
       }
     }
     
-    msaLog_('No QR code found in image');
+    msaLog_('QR decode: No QR code found in image');
     return null;
   } catch (e) {
-    msaLog_('Error decoding QR: ' + e.message);
+    msaLog_('QR decode: FAILED: ' + e.message);
     return null;
   }
 }
