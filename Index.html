@@ -488,7 +488,10 @@
               <li id="ocr-step-package">Packaging results</li>
               <li id="ocr-step-encode">Encoding image data</li>
               <li id="ocr-step-transfer">Transferring to browser</li>
-              <li id="ocr-step-render">Rendering UI</li>
+              <li id="ocr-step-render-image">Loading image into view</li>
+              <li id="ocr-step-render-ocr">Populating OCR text</li>
+              <li id="ocr-step-render-meta">Updating metadata panel</li>
+              <li id="ocr-step-done">Done — opening modal</li>
             </ul>
           </div>
         </div>
@@ -1053,13 +1056,13 @@
         var panel = document.getElementById('ocr-progress');
         panel.style.display = 'block';
         // Reset all steps (across both columns)
-        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-crossed','ocr-step-confidence','ocr-step-preview','ocr-step-package','ocr-step-encode','ocr-step-transfer','ocr-step-render'];
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-crossed','ocr-step-confidence','ocr-step-preview','ocr-step-package','ocr-step-encode','ocr-step-transfer','ocr-step-render-image','ocr-step-render-ocr','ocr-step-render-meta','ocr-step-done'];
         steps.forEach(function(id) {
           var el = document.getElementById(id);
           if (el) el.className = '';
         });
         // Animate steps with realistic timings matching actual backend flow (ms)
-        var timings = [0, 800, 1800, 4500, 7500, 8200, 9000, 9800, 10600, 11200, 12000, 12800, 13600, 14400];
+        var timings = [0, 800, 1800, 4500, 7500, 8200, 9000, 9800, 10600, 11200, 12000, 12800, 13600, 14200, 14800, 15400, 16000];
         var detailMsgs = [
           'Loading student work image from Google Drive…',
           'Image is large — resizing for optimal OCR…',
@@ -1074,7 +1077,10 @@
           'Packaging OCR text and metadata…',
           'Encoding image as base64…',
           'Transferring results to browser…',
-          'Rendering results in UI…'
+          'Loading student work image into view…',
+          'Populating OCR text and LaTeX…',
+          'Updating confidence and metadata…',
+          'Opening results modal…'
         ];
         var detailEl = document.getElementById('ocr-progress-detail');
         ocrProgressTimer_ = [];
@@ -1094,7 +1100,7 @@
         (ocrProgressTimer_ || []).forEach(clearTimeout);
         ocrProgressTimer_ = null;
         // Mark all steps done
-        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-crossed','ocr-step-confidence','ocr-step-preview','ocr-step-package','ocr-step-encode','ocr-step-transfer','ocr-step-render'];
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-crossed','ocr-step-confidence','ocr-step-preview','ocr-step-package','ocr-step-encode','ocr-step-transfer','ocr-step-render-image','ocr-step-render-ocr','ocr-step-render-meta','ocr-step-done'];
         steps.forEach(function(id) { var el = document.getElementById(id); if (el) el.className = 'done'; });
         document.getElementById('ocr-progress-detail').textContent = 'Done!';
         // Hide after a brief flash of "Done!"
