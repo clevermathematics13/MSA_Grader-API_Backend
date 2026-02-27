@@ -1110,19 +1110,25 @@ function gradeStudentWork(studentOcrText, questionCode) {
     msaLog_('Student text length (cleaned): ' + cleanedStudentText.length);
     
     // 2b. OCR Verification Pass — cross-check numbers against mark-scheme
-    //     using glyph-confusion matrix to catch common handwriting OCR errors
+    //     using glyph-confusion matrix to catch common handwriting OCR errors.
+    //
+    //     IMPORTANT: We run in DRY-RUN / flag-only mode. The verified text is
+    //     NOT passed to the grader because auto-correcting numbers toward the
+    //     mark scheme answer would inflate scores — the grader would "find"
+    //     numbers the student never wrote. Instead, we surface the near-misses
+    //     in the UI for teacher review.
     var ocrVerification = null;
-    var verifiedStudentText = cleanedStudentText;
+    var verifiedStudentText = cleanedStudentText;  // grader always uses the original
     try {
       ocrVerification = ocrVerifyStudentWork(
         cleanedStudentText,
         null,  // latexStyledText — pass if available
         markschemePoints,
-        { autoCorrectThreshold: 0.55 }
+        { autoCorrectThreshold: 0.55, dryRun: true }  // flag only, never rewrite
       );
-      verifiedStudentText = ocrVerification.verifiedText;
+      // NOTE: we intentionally do NOT use ocrVerification.verifiedText here
       if (ocrVerification.stats.corrected > 0 || ocrVerification.stats.flagged > 0) {
-        msaLog_('OCR Verify: ' + ocrVerification.stats.corrected + ' auto-corrected, ' +
+        msaLog_('OCR Verify (flag-only): ' + ocrVerification.stats.corrected + ' would-correct, ' +
           ocrVerification.stats.flagged + ' flagged for review');
       }
     } catch (verifyErr) {
