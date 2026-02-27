@@ -269,6 +269,17 @@ function testStudentWorkOcr(fileId, options = {}) {
     // ── Crossed-off detection ──
     var crossedOffResult = flagCrossedOffLines_(ocrResult);
 
+    // ── Apply learned corrections (patterns seen ≥ N times) ──
+    var learnedResult = { text: crossedOffResult.cleanedText, applied: [], stats: { rulesLoaded: 0, rulesApplied: 0, totalReplacements: 0 } };
+    try {
+      learnedResult = applyLearnedCorrections_(
+        crossedOffResult.cleanedText,
+        { minFrequency: (typeof MSA_OCR_LEARN_MIN_FREQUENCY !== 'undefined') ? MSA_OCR_LEARN_MIN_FREQUENCY : 2 }
+      );
+    } catch (learnErr) {
+      msaLog_('Learned corrections pass skipped: ' + learnErr.message);
+    }
+
     const processingTime = Date.now() - t0;
     
     // For preview, handle TIFF files specially since browsers don't support them
@@ -344,7 +355,11 @@ function testStudentWorkOcr(fileId, options = {}) {
         stats: crossedOffResult.stats,
         lineAnnotations: crossedOffResult.lineAnnotations
       },
-      cleanedOcrText: crossedOffResult.cleanedText,
+      cleanedOcrText: learnedResult.text,
+      learnedCorrections: {
+        applied: learnedResult.applied,
+        stats: learnedResult.stats
+      },
       metadata: {
         width: ocrResult.image_width || null,
         height: ocrResult.image_height || null,
@@ -483,7 +498,7 @@ function calculateCompositeConfidence_(ocrResult, rawConfidence) {
  * @param {string} correctedText The corrected OCR text.
  * @returns {object} Success status.
  */
-function saveStudentOcrCorrection(fileId, correctedText) {
+function saveStudentOcrCorrection(fileId, correctedText, originalText, questionCode) {
   try {
     const cfg = msaGetConfig_();
     const file = DriveApp.getFileById(fileId);
@@ -506,16 +521,35 @@ function saveStudentOcrCorrection(fileId, correctedText) {
     const existingFiles = correctionsFolder.getFilesByName(correctionFileName);
     
     if (existingFiles.hasNext()) {
-      // Update existing file
       const existingFile = existingFiles.next();
       existingFile.setContent(correctedText);
     } else {
-      // Create new file
       correctionsFolder.createFile(correctionFileName, correctedText);
     }
     
+    // ── LEARNING: Extract and save correction patterns ──
+    var learnResult = { saved: 0, updated: 0, total: 0 };
+    if (originalText && originalText.trim() !== correctedText.trim()) {
+      try {
+        var corrections = extractCorrections_(originalText, correctedText);
+        if (corrections.length > 0) {
+          learnResult = saveLearnedCorrections_(corrections, {
+            fileId: fileId,
+            questionCode: questionCode || ''
+          });
+          msaLog_('🧠 Learned ' + corrections.length + ' correction patterns (' +
+                  learnResult.saved + ' new, ' + learnResult.updated + ' reinforced)');
+        }
+      } catch (learnErr) {
+        msaWarn_('Learning pass failed (non-fatal): ' + learnErr.message);
+      }
+    }
+    
     msaLog_(`Saved OCR correction for ${file.getName()}`);
-    return { status: 'success' };
+    return {
+      status: 'success',
+      learned: learnResult
+    };
   } catch (e) {
     msaErr_(`Error saving OCR correction: ${e.message}`);
     throw new Error(`Failed to save correction: ${e.message}`);

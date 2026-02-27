@@ -578,6 +578,7 @@
                 <strong>Math Detected:</strong> <span id="ocr-math-detected">-</span><br>
                 <strong>Markers Detected:</strong> <span id="ocr-markers-detected" style="font-weight: 500;">-</span><br>
                 <strong>Crossed-Off Cleanup:</strong> <span id="ocr-crossed-off" style="font-weight: 500;">-</span><br>
+                <strong>Learned Corrections:</strong> <span id="ocr-learned" style="font-weight: 500;">-</span><br>
                 <strong>Processing Time:</strong> <span id="ocr-processing-time">-</span>
               </div>
             </div>
@@ -1192,6 +1193,25 @@
             crossedSpan.style.color = '#28a745';
           }
           
+          // Display learned corrections status
+          const learnedSpan = document.getElementById('ocr-learned');
+          if (result.learnedCorrections && result.learnedCorrections.stats.rulesApplied > 0) {
+            var lc = result.learnedCorrections;
+            var lcParts = ['🧠 ' + lc.stats.totalReplacements + ' replacement(s) from ' + lc.stats.rulesApplied + ' rule(s)'];
+            learnedSpan.textContent = lcParts.join(', ');
+            learnedSpan.style.color = '#6f42c1';
+            learnedSpan.title = lc.applied.map(function(a) {
+              return '"' + a.pattern + '" → "' + a.replacement + '" (×' + a.count + ', freq:' + a.frequency + ')';
+            }).join('\n');
+          } else if (result.learnedCorrections && result.learnedCorrections.stats.rulesLoaded > 0) {
+            learnedSpan.textContent = result.learnedCorrections.stats.rulesLoaded + ' rules loaded, none matched';
+            learnedSpan.style.color = '#6c757d';
+          } else {
+            learnedSpan.textContent = 'No rules yet';
+            learnedSpan.style.color = '#6c757d';
+            learnedSpan.title = 'Save corrected OCR to start teaching the system';
+          }
+          
           // Display detected question code
           const qCodeSpan = document.getElementById('detected-question-code');
           if (result.detectedQuestionCode) {
@@ -1250,18 +1270,38 @@
         if (!currentStudentOcrData) return;
         
         const correctedText = document.getElementById('student-ocr-textarea').value;
-        log('💾 Saving corrected OCR text...', 'info');
+        const originalText = currentStudentOcrData.ocrText || '';
+        const questionCode = currentStudentOcrData.detectedQuestionCode || '';
+        
+        // Check if anything was actually changed
+        if (correctedText.trim() === originalText.trim()) {
+          log('ℹ️ No changes detected — nothing to save.', 'info');
+          return;
+        }
+        
+        log('💾 Saving corrected OCR + learning patterns...', 'info');
         
         google.script.run
-          .withSuccessHandler(() => {
-            log('✅ Corrected OCR saved successfully', 'success');
-            document.getElementById('student-ocr-modal-backdrop').style.display = 'none';
+          .withSuccessHandler(function(result) {
+            var msg = '✅ Corrected OCR saved.';
+            if (result && result.learned) {
+              if (result.learned.saved > 0 || result.learned.updated > 0) {
+                msg += ' 🧠 Learned: ' + result.learned.saved + ' new rule(s), ' +
+                       result.learned.updated + ' reinforced (' + result.learned.total + ' total).';
+              }
+            }
+            log(msg, 'success');
           })
           .withFailureHandler(err => {
             log(`❌ Failed to save: ${err.message}`, 'error');
             alert(`Error saving: ${err.message}`);
           })
-          .saveStudentOcrCorrection(currentStudentOcrData.fileId, correctedText);
+          .saveStudentOcrCorrection(
+            currentStudentOcrData.fileId,
+            correctedText,
+            originalText,
+            questionCode
+          );
       }
       
       // Grading progress animation

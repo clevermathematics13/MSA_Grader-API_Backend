@@ -17,7 +17,12 @@ const MSA_GRADING_RULES_SHEET_NAME = "rules";
 // If you don’t use it yet, leave it on; code fails soft (logs + continues).
 const MSA_QUESTION_META_SPREADSHEET_ID = "1fc7cWtM83oxQ8rMIX8F_sgjN1xCkLpqdbeTzIG33kPU";
 const MSA_QUESTION_META_SHEET_NAME = "Sheet1"; // change if needed
+// OCR Corrections learning sheet — leave empty to auto-create on first Save.
+// After first save, the ID will be logged and stored in Script Properties.
+const MSA_OCR_CORRECTIONS_SPREADSHEET_ID = "";
 
+// Minimum frequency before a learned correction is auto-applied (default: 2 = seen at least twice)
+const MSA_OCR_LEARN_MIN_FREQUENCY = 2;
 // If a part’s command term is one of these, mark points with skip_autograde=true
 const MSA_SKIP_AUTOGRADE_COMMAND_TERMS = ["graph", "draw"];
 
