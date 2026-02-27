@@ -569,6 +569,7 @@
                 <strong>Confidence:</strong> <span id="ocr-confidence" class="confidence-indicator">-</span><br>
                 <strong>Math Detected:</strong> <span id="ocr-math-detected">-</span><br>
                 <strong>Markers Detected:</strong> <span id="ocr-markers-detected" style="font-weight: 500;">-</span><br>
+                <strong>Crossed-Off Cleanup:</strong> <span id="ocr-crossed-off" style="font-weight: 500;">-</span><br>
                 <strong>Processing Time:</strong> <span id="ocr-processing-time">-</span>
               </div>
             </div>
@@ -739,11 +740,12 @@
         });
       })();
 
-      // ── Zoom controls for student work image ──
+      // ── Zoom controls for student work image (5% intervals) ──
       (function() {
-        var zoomScale = 0; // 0 = fit mode
-        var ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
-        var zoomIndex = 3; // default 100%
+        var ZOOM_STEP = 0.05;  // 5% per click
+        var ZOOM_MIN = 0.10;   // 10%
+        var ZOOM_MAX = 5.00;   // 500%
+        var zoomScale = 0;     // 0 = fit mode
         var container = document.getElementById('image-preview-container');
         var img = document.getElementById('student-work-image');
         var display = document.getElementById('zoom-level-display');
@@ -757,6 +759,8 @@
         }
 
         function setZoom(scale) {
+          scale = Math.round(scale * 100) / 100;  // snap to nearest 1%
+          scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale));
           zoomScale = scale;
           container.classList.add('zoomed');
           img.style.width = (img.naturalWidth * scale) + 'px';
@@ -764,37 +768,22 @@
           display.textContent = Math.round(scale * 100) + '%';
         }
 
-        function findClosestIndex(scale) {
-          var best = 0;
-          for (var i = 0; i < ZOOM_STEPS.length; i++) {
-            if (Math.abs(ZOOM_STEPS[i] - scale) < Math.abs(ZOOM_STEPS[best] - scale)) best = i;
-          }
-          return best;
+        function getFitScale() {
+          return container.clientWidth / (img.naturalWidth || 1);
         }
 
         document.getElementById('zoom-in-btn').addEventListener('click', function() {
-          if (zoomScale === 0) {
-            // Going from fit → find the fit-equivalent scale and step up
-            var fitScale = container.clientWidth / (img.naturalWidth || 1);
-            zoomIndex = findClosestIndex(fitScale);
-            if (zoomIndex < ZOOM_STEPS.length - 1) zoomIndex++;
-          } else {
-            zoomIndex = findClosestIndex(zoomScale);
-            if (zoomIndex < ZOOM_STEPS.length - 1) zoomIndex++;
-          }
-          setZoom(ZOOM_STEPS[zoomIndex]);
+          var current = zoomScale === 0 ? getFitScale() : zoomScale;
+          // Snap to next 5% boundary above current
+          var next = Math.ceil(current / ZOOM_STEP) * ZOOM_STEP + ZOOM_STEP;
+          setZoom(next);
         });
 
         document.getElementById('zoom-out-btn').addEventListener('click', function() {
-          if (zoomScale === 0) {
-            var fitScale = container.clientWidth / (img.naturalWidth || 1);
-            zoomIndex = findClosestIndex(fitScale);
-            if (zoomIndex > 0) zoomIndex--;
-          } else {
-            zoomIndex = findClosestIndex(zoomScale);
-            if (zoomIndex > 0) zoomIndex--;
-          }
-          setZoom(ZOOM_STEPS[zoomIndex]);
+          var current = zoomScale === 0 ? getFitScale() : zoomScale;
+          // Snap to next 5% boundary below current
+          var next = Math.floor(current / ZOOM_STEP) * ZOOM_STEP - ZOOM_STEP;
+          setZoom(next);
         });
 
         document.getElementById('zoom-fit-btn').addEventListener('click', setFitMode);
@@ -1144,7 +1133,8 @@
             imgElement.parentElement.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">⚠️ TIFF preview unavailable<br><small>OCR was performed on original TIFF file</small></div><img id="student-work-image" style="display:none;">';
           }
           
-          document.getElementById('student-ocr-textarea').value = result.ocrText;
+          // Use cleaned OCR text (CJK chars stripped) if available, else raw
+          document.getElementById('student-ocr-textarea').value = result.cleanedOcrText || result.ocrText;
           
           // Set confidence indicator
           const confidenceSpan = document.getElementById('ocr-confidence');
@@ -1172,6 +1162,27 @@
             markersSpan.textContent = '✗ No';
             markersSpan.style.color = '#dc3545';
             markersSpan.title = 'Full image was processed';
+          }
+          
+          // Display crossed-off cleanup status
+          const crossedSpan = document.getElementById('ocr-crossed-off');
+          if (result.crossedOff && (result.crossedOff.stats.cjkCharsStripped > 0 || result.crossedOff.stats.flagged > 0)) {
+            var parts = [];
+            if (result.crossedOff.stats.cjkCharsStripped > 0) {
+              parts.push(result.crossedOff.stats.cjkCharsStripped + ' CJK char(s) stripped');
+            }
+            if (result.crossedOff.stats.fullwidthStripped > 0) {
+              parts.push(result.crossedOff.stats.fullwidthStripped + ' full-width replaced');
+            }
+            if (result.crossedOff.stats.flagged > 0) {
+              parts.push(result.crossedOff.stats.flagged + ' line(s) removed');
+            }
+            crossedSpan.textContent = '✂ ' + parts.join(', ');
+            crossedSpan.style.color = '#e67e22';
+            crossedSpan.title = 'CJK/garbage characters were detected and cleaned from the OCR output';
+          } else {
+            crossedSpan.textContent = 'None detected';
+            crossedSpan.style.color = '#28a745';
           }
           
           // Display detected question code
