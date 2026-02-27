@@ -21,8 +21,9 @@ const MSA_QUESTION_META_SHEET_NAME = "Sheet1"; // change if needed
 // After first save, the ID will be logged and stored in Script Properties.
 const MSA_OCR_CORRECTIONS_SPREADSHEET_ID = "";
 
-// Minimum frequency before a learned correction is auto-applied (default: 2 = seen at least twice)
-const MSA_OCR_LEARN_MIN_FREQUENCY = 2;
+// Minimum frequency before a learned correction is auto-applied
+// 1 = apply after first correction, 2 = require two sightings, etc.
+const MSA_OCR_LEARN_MIN_FREQUENCY = 1;
 // If a part’s command term is one of these, mark points with skip_autograde=true
 const MSA_SKIP_AUTOGRADE_COMMAND_TERMS = ["graph", "draw"];
 

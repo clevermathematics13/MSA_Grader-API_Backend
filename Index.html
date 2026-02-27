@@ -641,7 +641,6 @@
                   <button id="zoom-in-btn" title="Zoom in">+</button>
                   <button id="zoom-reset-btn" title="Reset zoom" style="font-size:11px;">⟲</button>
                 </div>
-                <button id="toggle-student-view-btn" style="padding: 4px 10px; font-size: 12px; background: #667eea; color: white;">Show Rendered OCR</button>
               </div>
             </div>
             <div class="grading-pane-content" id="student-work-pane">
@@ -656,6 +655,7 @@
           <div class="grading-pane" id="middle-pane">
             <div class="grading-pane-header">
               <h4>📋 Mark Scheme</h4>
+              <button id="toggle-student-view-btn" style="padding: 4px 10px; font-size: 12px; background: #667eea; color: white;">Show Rendered OCR</button>
             </div>
             <div class="grading-pane-content" id="markscheme-pane">
               <iframe id="grading-markscheme-frame" src="about:blank"></iframe>
@@ -1392,17 +1392,22 @@
           .gradeStudentWorkWithMarkscheme(studentText, questionCode);
       }
       
-      let gradingStudentViewMode = 'image'; // 'image' or 'rendered'
+      let gradingStudentViewMode = 'markscheme'; // 'markscheme' or 'rendered'
       
       function toggleGradingStudentView() {
-        const img = document.getElementById('grading-student-image');
+        const frame = document.getElementById('grading-markscheme-frame');
         const rendered = document.getElementById('student-rendered-view');
         const btn = document.getElementById('toggle-student-view-btn');
         
-        if (gradingStudentViewMode === 'image') {
-          img.style.display = 'none';
+        if (gradingStudentViewMode === 'markscheme') {
+          frame.style.display = 'none';
+          // Move rendered view into the middle pane if needed
+          var paneContent = document.getElementById('markscheme-pane');
+          if (rendered.parentElement !== paneContent) {
+            paneContent.appendChild(rendered);
+          }
           rendered.style.display = 'block';
-          btn.textContent = 'Show Original Image';
+          btn.textContent = 'Show Mark Scheme';
           gradingStudentViewMode = 'rendered';
           
           // Trigger MathJax rendering
@@ -1410,10 +1415,10 @@
             MathJax.typesetPromise([rendered]).catch(err => console.error('MathJax error:', err));
           }
         } else {
-          img.style.display = 'block';
+          frame.style.display = 'block';
           rendered.style.display = 'none';
           btn.textContent = 'Show Rendered OCR';
-          gradingStudentViewMode = 'image';
+          gradingStudentViewMode = 'markscheme';
         }
       }
       
@@ -1438,13 +1443,18 @@
             studentImg.style.display = 'block';
           }
           
-          // Set up rendered OCR view
+          // Set up rendered OCR view (lives in middle pane, toggled with mark scheme)
           const renderedView = document.getElementById('student-rendered-view');
           let displayText = (currentStudentOcrData.studentText || '').replace(/\\sum(?!\\limits)/g, '\\sum\\limits');
           renderedView.innerHTML = displayText;
           renderedView.style.display = 'none';
-          gradingStudentViewMode = 'image';
+          gradingStudentViewMode = 'markscheme';
           document.getElementById('toggle-student-view-btn').textContent = 'Show Rendered OCR';
+          // Ensure rendered view is inside the middle pane
+          var markschemePane = document.getElementById('markscheme-pane');
+          if (renderedView.parentElement !== markschemePane) {
+            markschemePane.appendChild(renderedView);
+          }
           
           // Load mark scheme preview if available
           const markschemeFrame = document.getElementById('grading-markscheme-frame');
