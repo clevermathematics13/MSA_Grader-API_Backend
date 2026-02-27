@@ -263,36 +263,54 @@ function extractTokenChanges_(origLine, corrLine) {
   while (i > 0) { result.unshift({ type: 'delete', text: origTokens[i - 1] }); i--; }
   while (j > 0) { result.unshift({ type: 'insert', text: corrTokens[j - 1] }); j--; }
 
-  // Merge adjacent delete+insert pairs into replacement rules
+  // Merge adjacent same-type operations into compound patterns.
+  // e.g. delete(\quad) + delete(M) + delete(1) → delete("\quad M 1")
+  // and  delete(A) + insert(B) + delete(C) + insert(D) → replace("A C", "B D")
   var k = 0;
   while (k < result.length) {
     if (result[k].type === 'delete') {
-      // Look for adjacent insert (= substitution)
-      if (k + 1 < result.length && result[k + 1].type === 'insert') {
+      // Collect all consecutive deletes
+      var delTokens = [];
+      while (k < result.length && result[k].type === 'delete') {
+        delTokens.push(result[k].text);
+        k++;
+      }
+      // Check if followed by consecutive inserts (= compound substitution)
+      var insTokens = [];
+      while (k < result.length && result[k].type === 'insert') {
+        insTokens.push(result[k].text);
+        k++;
+      }
+      if (insTokens.length > 0) {
+        // Substitution: "A B C" → "X Y"
         changes.push({
           type: 'replace',
-          original: result[k].text,
-          corrected: result[k + 1].text,
+          original: delTokens.join(' '),
+          corrected: insTokens.join(' '),
           context: origLine.substring(0, 80)
         });
-        k += 2;
       } else {
+        // Pure deletion: "\quad M 1" → ""
         changes.push({
           type: 'delete',
-          original: result[k].text,
+          original: delTokens.join(' '),
           corrected: '',
           context: origLine.substring(0, 80)
         });
-        k++;
       }
     } else if (result[k].type === 'insert') {
+      // Collect consecutive inserts
+      var insTokens2 = [];
+      while (k < result.length && result[k].type === 'insert') {
+        insTokens2.push(result[k].text);
+        k++;
+      }
       changes.push({
         type: 'insert',
         original: '',
-        corrected: result[k].text,
+        corrected: insTokens2.join(' '),
         context: origLine.substring(0, 80)
       });
-      k++;
     } else {
       k++; // keep — skip
     }
@@ -347,6 +365,19 @@ function saveLearnedCorrections_(corrections, meta) {
 
     // Skip very long patterns (>100 chars) — too specific to generalize
     if ((c.original || '').length > 100) continue;
+
+    // SAFETY: Skip dangerously short deletion patterns (≤ 3 chars) that would
+    // match everywhere. e.g. deleting "M" or "1" would destroy all M's and 1's.
+    // Exception: patterns containing CJK or clearly non-math characters are OK to delete.
+    if (c.type === 'delete' && (c.original || '').length <= 3) {
+      var hasCJK = /[\u4E00-\u9FFF\u3400-\u4DBF]/.test(c.original);
+      if (!hasCJK) continue;
+    }
+
+    // SAFETY: Skip patterns that are common LaTeX tokens, single digits,
+    // single letters, or operators — these would match far too broadly
+    var UNSAFE_PATTERNS = /^(\\?[a-zA-Z]|\d|[+\-=()\[\]{}.,;:!?\/<>|\\])$/;
+    if (UNSAFE_PATTERNS.test((c.original || '').trim())) continue;
 
     // Skip single-character changes that are just case differences
     if (c.original && c.corrected &&
