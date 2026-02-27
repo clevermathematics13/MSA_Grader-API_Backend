@@ -482,8 +482,22 @@ function flagCrossedOffLines_(ocrResult) {
   if (stats.gibberish > 0) msaLog_('  Gibberish lines: ' + stats.gibberish);
   if (stats.shortGarbage > 0) msaLog_('  Short garbage lines: ' + stats.shortGarbage);
 
+  // Build cleanedText by stripping CJK/fullwidth from the ORIGINAL full text
+  // (preserves all LaTeX formatting like \[...\], \begin{array}, etc.)
+  var fullText = ocrResult.text || '';
+  var cleanedFullText = fullText
+    .replace(CJK_GLOBAL, '')
+    .replace(/\\text\s*\{\s*\}/g, '')
+    .replace(/\uFF0E/g, '.').replace(/\uFF0C/g, ',').replace(/\uFF1A/g, ':')
+    .replace(/\uFF08/g, '(').replace(/\uFF09/g, ')').replace(/\u3000/g, ' ')
+    .replace(FULLWIDTH_RE, '');
+
+  if (fullText !== cleanedFullText) {
+    msaLog_('Full text cleaned: ' + fullText.length + ' → ' + cleanedFullText.length + ' chars');
+  }
+
   return {
-    cleanedText: cleanedParts.join('\n'),
+    cleanedText: cleanedFullText,
     flaggedLines: flaggedLines,
     lineAnnotations: lineAnnotations,
     stats: stats

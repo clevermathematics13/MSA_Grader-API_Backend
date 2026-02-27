@@ -471,21 +471,26 @@
           <div class="spinner"></div>
           <div style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">OCR in progress…</div>
           <div id="ocr-progress-detail" style="font-size: 12px; color: #666;"></div>
-          <ul class="grading-steps">
-            <li id="ocr-step-fetch">Fetching image from Drive</li>
-            <li id="ocr-step-compress">Compressing image for processing</li>
-            <li id="ocr-step-ocr">Running Mathpix OCR (full page)</li>
-            <li id="ocr-step-qr">Decoding QR code for question ID</li>
-            <li id="ocr-step-position">Detecting question position (Q1 / Q2+)</li>
-            <li id="ocr-step-coords">Looking up answer box coordinates</li>
-            <li id="ocr-step-crop">Cropping OCR to answer region</li>
-            <li id="ocr-step-confidence">Calculating confidence score</li>
-            <li id="ocr-step-preview">Building image preview</li>
-            <li id="ocr-step-package-ocr">Packaging OCR results</li>
-            <li id="ocr-step-package-crossed">Packaging crossed-off detection</li>
-            <li id="ocr-step-package-image">Packaging image preview</li>
-            <li id="ocr-step-send">Sending data to browser</li>
-          </ul>
+          <div style="display: flex; gap: 30px; margin-top: 12px;">
+            <ul class="grading-steps">
+              <li id="ocr-step-fetch">Fetching image from Drive</li>
+              <li id="ocr-step-compress">Compressing image</li>
+              <li id="ocr-step-ocr">Running Mathpix OCR</li>
+              <li id="ocr-step-qr">Decoding QR code</li>
+              <li id="ocr-step-position">Detecting position (Q1/Q2+)</li>
+              <li id="ocr-step-coords">Looking up box coordinates</li>
+              <li id="ocr-step-crop">Cropping to answer region</li>
+            </ul>
+            <ul class="grading-steps">
+              <li id="ocr-step-crossed">Crossed-off detection</li>
+              <li id="ocr-step-confidence">Calculating confidence</li>
+              <li id="ocr-step-preview">Building image preview</li>
+              <li id="ocr-step-package">Packaging results</li>
+              <li id="ocr-step-encode">Encoding image data</li>
+              <li id="ocr-step-transfer">Transferring to browser</li>
+              <li id="ocr-step-render">Rendering UI</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -1047,14 +1052,14 @@
       function showOcrProgress_() {
         var panel = document.getElementById('ocr-progress');
         panel.style.display = 'block';
-        // Reset all steps
-        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-package-ocr','ocr-step-package-crossed','ocr-step-package-image','ocr-step-send'];
+        // Reset all steps (across both columns)
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-crossed','ocr-step-confidence','ocr-step-preview','ocr-step-package','ocr-step-encode','ocr-step-transfer','ocr-step-render'];
         steps.forEach(function(id) {
           var el = document.getElementById(id);
-          el.className = '';
+          if (el) el.className = '';
         });
         // Animate steps with realistic timings matching actual backend flow (ms)
-        var timings = [0, 800, 1800, 4500, 7500, 8200, 9000, 9800, 10500, 11200, 11800, 12400, 13000];
+        var timings = [0, 800, 1800, 4500, 7500, 8200, 9000, 9800, 10600, 11200, 12000, 12800, 13600, 14400];
         var detailMsgs = [
           'Loading student work image from Google Drive…',
           'Image is large — resizing for optimal OCR…',
@@ -1063,20 +1068,21 @@
           'Checking for Section A header to determine Q1 vs Q2+…',
           'Querying database for stored answer box coordinates…',
           'Filtering OCR lines to just the answer region…',
+          'Scanning for CJK / crossed-off content…',
           'Analyzing text quality and computing confidence…',
           'Encoding image preview for display…',
           'Packaging OCR text and metadata…',
-          'Running crossed-off / CJK character detection…',
-          'Building image preview data…',
-          'Sending results to browser…'
+          'Encoding image as base64…',
+          'Transferring results to browser…',
+          'Rendering results in UI…'
         ];
         var detailEl = document.getElementById('ocr-progress-detail');
         ocrProgressTimer_ = [];
         steps.forEach(function(id, i) {
           var t = setTimeout(function() {
             // Mark previous as done
-            if (i > 0) document.getElementById(steps[i-1]).className = 'done';
-            document.getElementById(id).className = 'active';
+            if (i > 0) { var prev = document.getElementById(steps[i-1]); if (prev) prev.className = 'done'; }
+            var cur = document.getElementById(id); if (cur) cur.className = 'active';
             detailEl.textContent = detailMsgs[i];
           }, timings[i]);
           ocrProgressTimer_.push(t);
@@ -1088,8 +1094,8 @@
         (ocrProgressTimer_ || []).forEach(clearTimeout);
         ocrProgressTimer_ = null;
         // Mark all steps done
-        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-package-ocr','ocr-step-package-crossed','ocr-step-package-image','ocr-step-send'];
-        steps.forEach(function(id) { document.getElementById(id).className = 'done'; });
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-crossed','ocr-step-confidence','ocr-step-preview','ocr-step-package','ocr-step-encode','ocr-step-transfer','ocr-step-render'];
+        steps.forEach(function(id) { var el = document.getElementById(id); if (el) el.className = 'done'; });
         document.getElementById('ocr-progress-detail').textContent = 'Done!';
         // Hide after a brief flash of "Done!"
         setTimeout(function() {
