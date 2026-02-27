@@ -180,6 +180,8 @@ function testStudentWorkOcr(fileId, options = {}) {
     let markersDetected = false;
     let ocrResult;
     let detectedQuestionCode = options.questionCode || null;
+    let detectedStudentId = options.studentId || null;
+    let detectedExamName = options.examName || null;
     let detectedPosition = options.position || null;
     
     // Always run full OCR first to get all content and marker positions
@@ -205,6 +207,11 @@ function testStudentWorkOcr(fileId, options = {}) {
           detectedQuestionCode = qrData.q;
           msaLog_('Detected question code from QR (q): ' + detectedQuestionCode);
         }
+        // Capture student ID and exam name from QR
+        detectedStudentId = qrData.studentId || qrData.s || detectedStudentId;
+        detectedExamName = qrData.examName || qrData.e || detectedExamName;
+        if (detectedStudentId) msaLog_('Detected student ID from QR: ' + detectedStudentId);
+        if (detectedExamName) msaLog_('Detected exam name from QR: ' + detectedExamName);
       }
     }
     
@@ -349,6 +356,8 @@ function testStudentWorkOcr(fileId, options = {}) {
       cropInfo: cropInfo,  // Include crop information if markers detected
       markersDetected: markersDetected,
       detectedQuestionCode: detectedQuestionCode,  // Question code from QR or input
+      detectedStudentId: detectedStudentId,          // Student ID from QR
+      detectedExamName: detectedExamName,            // Exam name from QR
       detectedPosition: detectedPosition,  // Q1 or Q2+ 
       crossedOff: {
         flaggedLines: crossedOffResult.flaggedLines,
@@ -498,7 +507,7 @@ function calculateCompositeConfidence_(ocrResult, rawConfidence) {
  * @param {string} correctedText The corrected OCR text.
  * @returns {object} Success status.
  */
-function saveStudentOcrCorrection(fileId, correctedText, originalText, questionCode) {
+function saveStudentOcrCorrection(fileId, correctedText, originalText, questionCode, studentId, examName) {
   try {
     const cfg = msaGetConfig_();
     const file = DriveApp.getFileById(fileId);
@@ -507,24 +516,65 @@ function saveStudentOcrCorrection(fileId, correctedText, originalText, questionC
     const parentFolderId = cfg.MSA_PARENT_FOLDER_ID || DriveApp.getRootFolder().getId();
     const parentFolder = DriveApp.getFolderById(parentFolderId);
     
-    // Create or get OCR corrections folder
-    let correctionsFolderIterator = parentFolder.getFoldersByName('_OCR_Corrections');
-    let correctionsFolder;
+    // Create or get OCR corrections root folder
+    var correctionsFolderIterator = parentFolder.getFoldersByName('_OCR_Corrections');
+    var correctionsFolder;
     if (correctionsFolderIterator.hasNext()) {
       correctionsFolder = correctionsFolderIterator.next();
     } else {
       correctionsFolder = parentFolder.createFolder('_OCR_Corrections');
     }
     
-    // Save the corrected text
-    const correctionFileName = `${file.getName()}_corrected.txt`;
-    const existingFiles = correctionsFolder.getFilesByName(correctionFileName);
+    // ── Organize by student + question ──
+    // Structure: _OCR_Corrections / {studentId} / {questionCode} / corrected_ocr.txt
+    // If no studentId from QR, fall back to file-name-based storage
+    var targetFolder = correctionsFolder;
+    var correctionFileName;
     
-    if (existingFiles.hasNext()) {
-      const existingFile = existingFiles.next();
-      existingFile.setContent(correctedText);
+    if (studentId && questionCode) {
+      // Create student subfolder
+      var studentFolderIter = correctionsFolder.getFoldersByName(studentId);
+      var studentFolder;
+      if (studentFolderIter.hasNext()) {
+        studentFolder = studentFolderIter.next();
+      } else {
+        studentFolder = correctionsFolder.createFolder(studentId);
+      }
+      // Create question subfolder
+      var questionFolderIter = studentFolder.getFoldersByName(questionCode);
+      var questionFolder;
+      if (questionFolderIter.hasNext()) {
+        questionFolder = questionFolderIter.next();
+      } else {
+        questionFolder = studentFolder.createFolder(questionCode);
+      }
+      targetFolder = questionFolder;
+      correctionFileName = 'corrected_ocr.txt';
+      
+      // Also save metadata JSON
+      var metaJson = JSON.stringify({
+        studentId: studentId,
+        questionCode: questionCode,
+        examName: examName || '',
+        sourceFileId: fileId,
+        sourceFileName: file.getName(),
+        savedAt: new Date().toISOString(),
+        textLength: correctedText.length
+      }, null, 2);
+      msaUpsertTextFile_(targetFolder, 'metadata.json', metaJson);
+      msaLog_('Saved corrected OCR for student ' + studentId + ' / question ' + questionCode);
     } else {
-      correctionsFolder.createFile(correctionFileName, correctedText);
+      // No QR data — fall back to flat file with filename
+      correctionFileName = file.getName() + '_corrected.txt';
+      msaLog_('No QR data — saving as ' + correctionFileName);
+    }
+    
+    // Save/update the corrected text
+    var existingFiles = targetFolder.getFilesByName(correctionFileName);
+    if (existingFiles.hasNext()) {
+      existingFiles.next().setContent(correctedText);
+    } else {
+      targetFolder.createFile(correctionFileName, correctedText);
     }
     
     // ── LEARNING: Extract and save correction patterns ──
@@ -535,7 +585,8 @@ function saveStudentOcrCorrection(fileId, correctedText, originalText, questionC
         if (corrections.length > 0) {
           learnResult = saveLearnedCorrections_(corrections, {
             fileId: fileId,
-            questionCode: questionCode || ''
+            questionCode: questionCode || '',
+            studentId: studentId || ''
           });
           msaLog_('🧠 Learned ' + corrections.length + ' correction patterns (' +
                   learnResult.saved + ' new, ' + learnResult.updated + ' reinforced)');
@@ -545,14 +596,15 @@ function saveStudentOcrCorrection(fileId, correctedText, originalText, questionC
       }
     }
     
-    msaLog_(`Saved OCR correction for ${file.getName()}`);
     return {
       status: 'success',
+      studentId: studentId || null,
+      questionCode: questionCode || null,
       learned: learnResult
     };
   } catch (e) {
-    msaErr_(`Error saving OCR correction: ${e.message}`);
-    throw new Error(`Failed to save correction: ${e.message}`);
+    msaErr_('Error saving OCR correction: ' + e.message);
+    throw new Error('Failed to save correction: ' + e.message);
   }
 }
 

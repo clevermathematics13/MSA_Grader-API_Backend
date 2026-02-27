@@ -1215,7 +1215,10 @@
           // Display detected question code
           const qCodeSpan = document.getElementById('detected-question-code');
           if (result.detectedQuestionCode) {
-            qCodeSpan.textContent = `📌 Question: ${result.detectedQuestionCode} (${result.detectedPosition || 'Q2+'})`;
+            var qLabel = `📌 Question: ${result.detectedQuestionCode} (${result.detectedPosition || 'Q2+'})`;
+            if (result.detectedStudentId) qLabel += ` | Student: ${result.detectedStudentId}`;
+            if (result.detectedExamName) qLabel += ` | ${result.detectedExamName}`;
+            qCodeSpan.textContent = qLabel;
             qCodeSpan.style.color = '#007bff';
           } else {
             qCodeSpan.textContent = '❓ No question code detected from QR';
@@ -1272,6 +1275,8 @@
         const correctedText = document.getElementById('student-ocr-textarea').value;
         const originalText = currentStudentOcrData.ocrText || '';
         const questionCode = currentStudentOcrData.detectedQuestionCode || '';
+        const studentId = currentStudentOcrData.detectedStudentId || '';
+        const examName = currentStudentOcrData.detectedExamName || '';
         
         // Check if anything was actually changed
         if (correctedText.trim() === originalText.trim()) {
@@ -1279,11 +1284,16 @@
           return;
         }
         
-        log('💾 Saving corrected OCR + learning patterns...', 'info');
+        var saveLabel = studentId ? ('student ' + studentId + ' / ' + questionCode) : questionCode;
+        log('💾 Saving corrected OCR for ' + saveLabel + '...', 'info');
         
         google.script.run
           .withSuccessHandler(function(result) {
-            var msg = '✅ Corrected OCR saved.';
+            var msg = '✅ Corrected OCR saved';
+            if (result && result.studentId) {
+              msg += ' for student ' + result.studentId + ' / ' + result.questionCode;
+            }
+            msg += '.';
             if (result && result.learned) {
               if (result.learned.saved > 0 || result.learned.updated > 0) {
                 msg += ' 🧠 Learned: ' + result.learned.saved + ' new rule(s), ' +
@@ -1300,7 +1310,9 @@
             currentStudentOcrData.fileId,
             correctedText,
             originalText,
-            questionCode
+            questionCode,
+            studentId,
+            examName
           );
       }
       
