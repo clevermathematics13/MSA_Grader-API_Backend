@@ -266,6 +266,17 @@ function testStudentWorkOcr(fileId, options = {}) {
       msaLog_('Using full image - no crop applied');
     }
     
+    // ── Crossed-off detection ──
+    updateOcrProgress_ && updateOcrProgress_('ocr-step-package-ocr');
+    var crossedOffResult = flagCrossedOffLines_(ocrResult);
+    updateOcrProgress_ && updateOcrProgress_('ocr-step-package-crossed');
+
+    // Build image preview (simulate step)
+    updateOcrProgress_ && updateOcrProgress_('ocr-step-package-image');
+
+    // Final step: sending data to browser
+    updateOcrProgress_ && updateOcrProgress_('ocr-step-send');
+
     const processingTime = Date.now() - t0;
     
     // For preview, handle TIFF files specially since browsers don't support them
@@ -336,6 +347,12 @@ function testStudentWorkOcr(fileId, options = {}) {
       markersDetected: markersDetected,
       detectedQuestionCode: detectedQuestionCode,  // Question code from QR or input
       detectedPosition: detectedPosition,  // Q1 or Q2+ 
+      crossedOff: {
+        flaggedLines: crossedOffResult.flaggedLines,
+        stats: crossedOffResult.stats,
+        lineAnnotations: crossedOffResult.lineAnnotations
+      },
+      cleanedOcrText: crossedOffResult.cleanedText,
       metadata: {
         width: ocrResult.image_width || null,
         height: ocrResult.image_height || null,
@@ -349,6 +366,94 @@ function testStudentWorkOcr(fileId, options = {}) {
       message: e.message
     };
   }
+}
+
+/**
+ * Detect and flag lines that are likely crossed-off student work.
+ * Looks for CJK characters (Chinese/Japanese/Korean), symbol gibberish,
+ * and very low-confidence lines that OCR produces when reading scribbles/cross-outs.
+ *
+ * @param {object} ocrResult The OCR result with line_data array from Mathpix
+ * @returns {object} { cleanedText, flaggedLines[], stats, lineAnnotations[] }
+ */
+function flagCrossedOffLines_(ocrResult) {
+  // CJK Unicode ranges: Han, CJK Ext A/B, Katakana, Hiragana, Bopomofo, Hangul
+  var CJK_RE = /[\u4E00-\u9FFF\u3400-\u4DBF\u20000-\u2A6DF\u3040-\u309F\u30A0-\u30FF\u3100-\u312F\uAC00-\uD7AF]/;
+  // Symbol gibberish — high density of non-math symbols
+  var GIBBERISH_RE = /[\u2600-\u27BF\u2B50-\u2B55\u25A0-\u25FF]{2,}/;
+
+  var lineData = ocrResult.line_data || [];
+  var cleanedParts = [];
+  var flaggedLines = [];
+  var lineAnnotations = [];  // parallel to line_data, one annotation per line
+  var stats = { total: lineData.length, flagged: 0, kept: 0, cjk: 0, gibberish: 0, shortGarbage: 0 };
+
+  msaLog_('=== CROSSED-OFF DETECTION ===');
+  msaLog_('Scanning ' + lineData.length + ' lines for crossed-off / garbage content');
+
+  for (var i = 0; i < lineData.length; i++) {
+    var line = lineData[i];
+    var text = (line.text || '').trim();
+    var reason = null;
+
+    // 1. CJK characters — almost certainly a misread of crossed-off ink
+    if (CJK_RE.test(text)) {
+      // Count CJK characters vs total length
+      var cjkCount = (text.match(/[\u4E00-\u9FFF\u3400-\u4DBF\u20000-\u2A6DF\u3040-\u309F\u30A0-\u30FF\u3100-\u312F\uAC00-\uD7AF]/g) || []).length;
+      var ratio = cjkCount / Math.max(1, text.replace(/\s/g, '').length);
+      // If > 15% of the non-whitespace chars are CJK, flag it
+      if (ratio > 0.15) {
+        reason = 'cjk';
+        stats.cjk++;
+        msaLog_('  LINE ' + i + ' [CJK ' + Math.round(ratio * 100) + '%] "' + text.substring(0, 60) + '"');
+      }
+    }
+
+    // 2. Symbol gibberish clusters
+    if (!reason && GIBBERISH_RE.test(text)) {
+      reason = 'gibberish';
+      stats.gibberish++;
+      msaLog_('  LINE ' + i + ' [GIBBERISH] "' + text.substring(0, 60) + '"');
+    }
+
+    // 3. Very short non-math noise (1-2 chars that aren't numbers/operators)
+    if (!reason && text.length > 0 && text.length <= 2) {
+      // Keep things like "0", "1", "+", "=", "x", etc.
+      var isMathOrLabel = /^[\d+\-=()xyna-fA-F.πΣ∑\\]$/.test(text) || /^\([a-z]\)$/.test(text);
+      if (!isMathOrLabel) {
+        reason = 'short_garbage';
+        stats.shortGarbage++;
+        msaLog_('  LINE ' + i + ' [SHORT GARBAGE] "' + text + '"');
+      }
+    }
+
+    if (reason) {
+      stats.flagged++;
+      flaggedLines.push({
+        index: i,
+        text: text,
+        reason: reason,
+        original: line
+      });
+      lineAnnotations.push({ status: 'crossed-off', reason: reason });
+    } else {
+      stats.kept++;
+      if (text) cleanedParts.push(text);
+      lineAnnotations.push({ status: 'ok' });
+    }
+  }
+
+  msaLog_('Crossed-off scan complete: ' + stats.flagged + ' flagged, ' + stats.kept + ' kept');
+  if (stats.cjk > 0) msaLog_('  CJK misreads: ' + stats.cjk);
+  if (stats.gibberish > 0) msaLog_('  Gibberish: ' + stats.gibberish);
+  if (stats.shortGarbage > 0) msaLog_('  Short garbage: ' + stats.shortGarbage);
+
+  return {
+    cleanedText: cleanedParts.join('\n'),
+    flaggedLines: flaggedLines,
+    lineAnnotations: lineAnnotations,
+    stats: stats
+  };
 }
 
 /**
@@ -988,6 +1093,13 @@ function gradeStudentWork(studentOcrText, questionCode) {
     
     msaLog_('Loaded ' + markschemePoints.length + ' markscheme points');
     
+    // 1b. Auto-flag crossed-off / CJK garbage lines
+    var crossedOffScan = flagCrossedOffLines_({ text: studentOcrText, line_data: studentOcrText.split('\n').map(function(t) { return { text: t }; }) });
+    if (crossedOffScan.stats.flagged > 0) {
+      msaLog_('Pre-grade crossed-off scan: removed ' + crossedOffScan.stats.flagged + ' garbage lines');
+      studentOcrText = crossedOffScan.cleanedText;
+    }
+
     // 2. Clean the student text - remove printed question content
     const cleanedStudentText = cleanStudentOcrText_(studentOcrText);
     msaLog_('Student text length (cleaned): ' + cleanedStudentText.length);
