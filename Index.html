@@ -1048,13 +1048,13 @@
         var panel = document.getElementById('ocr-progress');
         panel.style.display = 'block';
         // Reset all steps
-        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-done'];
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-package-ocr','ocr-step-package-crossed','ocr-step-package-image','ocr-step-send'];
         steps.forEach(function(id) {
           var el = document.getElementById(id);
           el.className = '';
         });
         // Animate steps with realistic timings matching actual backend flow (ms)
-        var timings = [0, 800, 1800, 4500, 7500, 8200, 9000, 9800, 10500, 12000];
+        var timings = [0, 800, 1800, 4500, 7500, 8200, 9000, 9800, 10500, 11200, 11800, 12400, 13000];
         var detailMsgs = [
           'Loading student work image from Google Drive…',
           'Image is large — resizing for optimal OCR…',
@@ -1065,7 +1065,10 @@
           'Filtering OCR lines to just the answer region…',
           'Analyzing text quality and computing confidence…',
           'Encoding image preview for display…',
-          'Packaging results and sending to browser…'
+          'Packaging OCR text and metadata…',
+          'Running crossed-off / CJK character detection…',
+          'Building image preview data…',
+          'Sending results to browser…'
         ];
         var detailEl = document.getElementById('ocr-progress-detail');
         ocrProgressTimer_ = [];
@@ -1085,7 +1088,7 @@
         (ocrProgressTimer_ || []).forEach(clearTimeout);
         ocrProgressTimer_ = null;
         // Mark all steps done
-        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-done'];
+        var steps = ['ocr-step-fetch','ocr-step-compress','ocr-step-ocr','ocr-step-qr','ocr-step-position','ocr-step-coords','ocr-step-crop','ocr-step-confidence','ocr-step-preview','ocr-step-package-ocr','ocr-step-package-crossed','ocr-step-package-image','ocr-step-send'];
         steps.forEach(function(id) { document.getElementById(id).className = 'done'; });
         document.getElementById('ocr-progress-detail').textContent = 'Done!';
         // Hide after a brief flash of "Done!"

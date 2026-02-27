@@ -267,15 +267,7 @@ function testStudentWorkOcr(fileId, options = {}) {
     }
     
     // ── Crossed-off detection ──
-    updateOcrProgress_ && updateOcrProgress_('ocr-step-package-ocr');
     var crossedOffResult = flagCrossedOffLines_(ocrResult);
-    updateOcrProgress_ && updateOcrProgress_('ocr-step-package-crossed');
-
-    // Build image preview (simulate step)
-    updateOcrProgress_ && updateOcrProgress_('ocr-step-package-image');
-
-    // Final step: sending data to browser
-    updateOcrProgress_ && updateOcrProgress_('ocr-step-send');
 
     const processingTime = Date.now() - t0;
     
