@@ -369,132 +369,55 @@ function testStudentWorkOcr(fileId, options = {}) {
  * @returns {object} { cleanedText, flaggedLines[], stats, lineAnnotations[] }
  */
 function flagCrossedOffLines_(ocrResult) {
-  // CJK Unicode ranges: Han, CJK Ext A/B, Katakana, Hiragana, Bopomofo, Hangul
-  var CJK_GLOBAL = /[\u4E00-\u9FFF\u3400-\u4DBF\u20000-\u2A6DF\u3040-\u309F\u30A0-\u30FF\u3100-\u312F\uAC00-\uD7AF]/g;
-  var CJK_TEST  = /[\u4E00-\u9FFF\u3400-\u4DBF\u20000-\u2A6DF\u3040-\u309F\u30A0-\u30FF\u3100-\u312F\uAC00-\uD7AF]/;
-  // Full-width punctuation that Mathpix sometimes emits for messy handwriting
-  var FULLWIDTH_RE = /[\uFF01-\uFF60\u3000-\u303F]/g;
-  // Symbol gibberish — high density of non-math symbols
-  var GIBBERISH_RE = /[\u2600-\u27BF\u2B50-\u2B55\u25A0-\u25FF]{2,}/;
+  // CONSERVATIVE approach: Only strip CJK characters that are clearly isolated
+  // garbage inside \text{} wrappers (e.g. \text { 演 } from misread scribbles).
+  // Mathpix intentionally uses full-width characters （）＋＝ etc. — never touch those.
+
+  // Pattern: \text { <CJK char(s)> } — isolated CJK inside \text wrappers
+  var TEXT_CJK_RE = /\\text\s*\{\s*[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\u3100-\u312F\uAC00-\uD7AF]+\s*\}/g;
 
   var lineData = ocrResult.line_data || [];
-  var cleanedParts = [];
+  var lineAnnotations = [];
   var flaggedLines = [];
-  var lineAnnotations = [];  // parallel to line_data, one annotation per line
-  var stats = { total: lineData.length, flagged: 0, kept: 0, cjkCharsStripped: 0,
-                cjkLinesAffected: 0, fullwidthStripped: 0, gibberish: 0, shortGarbage: 0 };
+  var stats = { total: lineData.length, flagged: 0, kept: 0, cjkTextBlocks: 0 };
 
-  msaLog_('=== CROSSED-OFF DETECTION ===');
-  msaLog_('Scanning ' + lineData.length + ' lines for crossed-off / garbage content');
+  msaLog_('=== CROSSED-OFF DETECTION (conservative) ===');
+  msaLog_('Scanning ' + lineData.length + ' lines for isolated CJK in \\text{} blocks');
 
+  // Scan line_data for logging purposes only
   for (var i = 0; i < lineData.length; i++) {
     var line = lineData[i];
     var text = (line.text || '').trim();
-    var originalText = text;
-    var lineFlags = [];  // reasons this line was touched
 
-    // 1. Strip ALL CJK characters inline — in IB math work these are always OCR misreads
-    if (CJK_TEST.test(text)) {
-      var cjkChars = text.match(CJK_GLOBAL) || [];
-      stats.cjkCharsStripped += cjkChars.length;
-      stats.cjkLinesAffected++;
-      text = text.replace(CJK_GLOBAL, '').trim();
-      // Also clean up any \text { } wrappers left empty after stripping
-      text = text.replace(/\\text\s*\{\s*\}/g, '').trim();
-      lineFlags.push('cjk_stripped');
-      msaLog_('  LINE ' + i + ' [CJK STRIPPED ' + cjkChars.length + ' char(s): "' +
-              cjkChars.join('') + '"] from: "' + originalText.substring(0, 60) + '"');
-      msaLog_('    → cleaned: "' + text.substring(0, 60) + '"');
-    }
-
-    // 1b. Strip full-width punctuation (．，：etc) — replace with ASCII equivalents
-    if (FULLWIDTH_RE.test(text)) {
-      var fwCount = (text.match(FULLWIDTH_RE) || []).length;
-      stats.fullwidthStripped += fwCount;
-      text = text.replace(/\uFF0E/g, '.').replace(/\uFF0C/g, ',').replace(/\uFF1A/g, ':')
-                 .replace(/\uFF08/g, '(').replace(/\uFF09/g, ')').replace(/\u3000/g, ' ')
-                 .replace(FULLWIDTH_RE, '').trim();
-      lineFlags.push('fullwidth_replaced');
-    }
-
-    // 2. Flag entire line if MOSTLY CJK (>50% after stripping means nothing useful left)
-    if (text.length === 0 && originalText.length > 0) {
-      stats.flagged++;
-      flaggedLines.push({
-        index: i,
-        text: originalText,
-        cleanedText: '',
-        reason: 'cjk_line',
-        flags: lineFlags
-      });
-      lineAnnotations.push({ status: 'crossed-off', reason: 'cjk_line', original: originalText });
-      continue;
-    }
-
-    // 3. Symbol gibberish clusters
-    if (GIBBERISH_RE.test(text)) {
-      stats.gibberish++;
-      stats.flagged++;
-      msaLog_('  LINE ' + i + ' [GIBBERISH] "' + text.substring(0, 60) + '"');
-      flaggedLines.push({
-        index: i,
-        text: originalText,
-        cleanedText: '',
-        reason: 'gibberish',
-        flags: ['gibberish']
-      });
-      lineAnnotations.push({ status: 'crossed-off', reason: 'gibberish', original: originalText });
-      continue;
-    }
-
-    // 4. Very short non-math noise (1-2 chars that aren't numbers/operators)
-    if (text.length > 0 && text.length <= 2) {
-      var isMathOrLabel = /^[\d+\-=()xyna-fA-F.πΣ∑\\]$/.test(text) || /^\([a-z]\)$/.test(text);
-      if (!isMathOrLabel) {
-        stats.shortGarbage++;
-        stats.flagged++;
-        msaLog_('  LINE ' + i + ' [SHORT GARBAGE] "' + text + '"');
-        flaggedLines.push({
-          index: i,
-          text: originalText,
-          cleanedText: '',
-          reason: 'short_garbage',
-          flags: ['short_garbage']
-        });
-        lineAnnotations.push({ status: 'crossed-off', reason: 'short_garbage', original: originalText });
-        continue;
-      }
-    }
-
-    // Line is kept (possibly with CJK chars stripped)
-    stats.kept++;
-    if (text) cleanedParts.push(text);
-    if (lineFlags.length > 0) {
-      lineAnnotations.push({ status: 'cleaned', flags: lineFlags, original: originalText, cleaned: text });
+    if (TEXT_CJK_RE.test(text)) {
+      TEXT_CJK_RE.lastIndex = 0; // reset regex
+      var matches = text.match(TEXT_CJK_RE) || [];
+      stats.cjkTextBlocks += matches.length;
+      msaLog_('  LINE ' + i + ' [CJK \\text block] "' + matches.join(', ') + '" in: "' + text.substring(0, 80) + '"');
+      lineAnnotations.push({ status: 'cleaned', flags: ['cjk_text_stripped'], original: text });
     } else {
       lineAnnotations.push({ status: 'ok' });
+      stats.kept++;
     }
   }
 
-  msaLog_('Crossed-off scan complete: ' + stats.flagged + ' lines flagged, ' + stats.kept + ' kept');
-  if (stats.cjkCharsStripped > 0) msaLog_('  CJK chars stripped: ' + stats.cjkCharsStripped + ' across ' + stats.cjkLinesAffected + ' lines');
-  if (stats.fullwidthStripped > 0) msaLog_('  Full-width chars replaced: ' + stats.fullwidthStripped);
-  if (stats.gibberish > 0) msaLog_('  Gibberish lines: ' + stats.gibberish);
-  if (stats.shortGarbage > 0) msaLog_('  Short garbage lines: ' + stats.shortGarbage);
-
-  // Build cleanedText by stripping CJK/fullwidth from the ORIGINAL full text
-  // (preserves all LaTeX formatting like \[...\], \begin{array}, etc.)
+  // Build cleanedText: only strip \text{<CJK>} blocks from the ORIGINAL full text
+  // This preserves ALL LaTeX formatting, full-width chars, math expressions, etc.
   var fullText = ocrResult.text || '';
-  var cleanedFullText = fullText
-    .replace(CJK_GLOBAL, '')
-    .replace(/\\text\s*\{\s*\}/g, '')
-    .replace(/\uFF0E/g, '.').replace(/\uFF0C/g, ',').replace(/\uFF1A/g, ':')
-    .replace(/\uFF08/g, '(').replace(/\uFF09/g, ')').replace(/\u3000/g, ' ')
-    .replace(FULLWIDTH_RE, '');
+  var cleanedFullText = fullText.replace(TEXT_CJK_RE, '');
+
+  // Clean up any double-spaces or trailing whitespace left behind
+  cleanedFullText = cleanedFullText.replace(/  +/g, ' ');
 
   if (fullText !== cleanedFullText) {
-    msaLog_('Full text cleaned: ' + fullText.length + ' → ' + cleanedFullText.length + ' chars');
+    stats.cjkTextBlocks = stats.cjkTextBlocks || 1;
+    msaLog_('Full text cleaned: ' + fullText.length + ' → ' + cleanedFullText.length + ' chars (' +
+            (fullText.length - cleanedFullText.length) + ' chars removed)');
+  } else {
+    msaLog_('No CJK \\text{} blocks found — text unchanged');
   }
+
+  msaLog_('Crossed-off scan complete: ' + stats.cjkTextBlocks + ' CJK \\text{} block(s) stripped');
 
   return {
     cleanedText: cleanedFullText,

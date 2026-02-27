@@ -1181,20 +1181,12 @@
           
           // Display crossed-off cleanup status
           const crossedSpan = document.getElementById('ocr-crossed-off');
-          if (result.crossedOff && (result.crossedOff.stats.cjkCharsStripped > 0 || result.crossedOff.stats.flagged > 0)) {
-            var parts = [];
-            if (result.crossedOff.stats.cjkCharsStripped > 0) {
-              parts.push(result.crossedOff.stats.cjkCharsStripped + ' CJK char(s) stripped');
-            }
-            if (result.crossedOff.stats.fullwidthStripped > 0) {
-              parts.push(result.crossedOff.stats.fullwidthStripped + ' full-width replaced');
-            }
-            if (result.crossedOff.stats.flagged > 0) {
-              parts.push(result.crossedOff.stats.flagged + ' line(s) removed');
-            }
-            crossedSpan.textContent = '✂ ' + parts.join(', ');
+          if (result.crossedOff && result.crossedOff.stats.cjkTextBlocks > 0) {
+            var charsRemoved = (result.ocrText || '').length - (result.cleanedOcrText || result.ocrText || '').length;
+            crossedSpan.textContent = '✂ ' + result.crossedOff.stats.cjkTextBlocks + ' CJK \\text{} block(s) stripped' +
+              (charsRemoved > 0 ? ' (' + charsRemoved + ' chars)' : '');
             crossedSpan.style.color = '#e67e22';
-            crossedSpan.title = 'CJK/garbage characters were detected and cleaned from the OCR output';
+            crossedSpan.title = 'Isolated CJK characters inside \\text{} wrappers were removed (likely scribble misreads)';
           } else {
             crossedSpan.textContent = 'None detected';
             crossedSpan.style.color = '#28a745';
