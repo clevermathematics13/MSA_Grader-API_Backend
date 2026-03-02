@@ -1248,12 +1248,18 @@
         if (result.status === 'success') {
           currentStudentOcrData = result;
           
-          // Populate the modal - handle TIFF preview
+          // Populate the modal - handle TIFF / large image preview
           const imgElement = document.getElementById('student-work-image');
           if (result.imageUrl) {
+            // Drive thumbnail URLs need crossorigin for Google auth cookies
+            if (result.imageUrl.startsWith('http')) {
+              imgElement.crossOrigin = 'use-credentials';
+            } else {
+              imgElement.removeAttribute('crossorigin');
+            }
             imgElement.src = result.imageUrl;
             imgElement.style.display = 'block';
-            imgElement.alt = result.isTiff ? 'TIFF preview (thumbnail)' : 'Student work';
+            imgElement.alt = (result.isTiff ? 'TIFF preview' : 'Student work') + (result.imageUrl.startsWith('http') ? ' (thumbnail)' : '');
           } else {
             imgElement.style.display = 'none';
             imgElement.parentElement.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">⚠️ TIFF preview unavailable<br><small>OCR was performed on original TIFF file</small></div><img id="student-work-image" style="display:none;">';

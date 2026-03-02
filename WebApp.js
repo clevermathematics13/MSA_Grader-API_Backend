@@ -334,10 +334,29 @@ function testStudentWorkOcr(fileId, options = {}) {
         imageDataUrl = null;
       }
     } else {
-      // For other image types (PNG, JPG, etc.), embed directly as base64
-      const blob = file.getBlob();
-      const base64Image = Utilities.base64Encode(blob.getBytes());
-      imageDataUrl = `data:${mimeType};base64,${base64Image}`;
+      // For other image types (PNG, JPG, etc.):
+      // If the file is large (>500KB), use a Drive thumbnail URL instead of base64
+      // to keep the return payload under google.script.run's size limit (~1-2MB).
+      const blobBytes = file.getBlob().getBytes();
+      var blobSizeKB = Math.round(blobBytes.length / 1024);
+
+      if (blobSizeKB > 500) {
+        msaLog_('Image too large for base64 (' + blobSizeKB + 'KB), using Drive thumbnail URL');
+        try {
+          const meta = Drive.Files.get(fileId, { fields: 'thumbnailLink' });
+          if (meta.thumbnailLink) {
+            imageDataUrl = meta.thumbnailLink.replace('=s220', '=s1600');
+          } else {
+            imageDataUrl = null;
+          }
+        } catch (thumbErr) {
+          msaLog_('Thumbnail fallback failed: ' + thumbErr.message);
+          imageDataUrl = null;
+        }
+      } else {
+        const base64Image = Utilities.base64Encode(blobBytes);
+        imageDataUrl = `data:${mimeType};base64,${base64Image}`;
+      }
     }
     
     msaLog_('📍 Checkpoint: image encoded, imageDataUrl length=' + (imageDataUrl ? imageDataUrl.length : 'null') + ', elapsed ' + (Date.now() - t0) + 'ms');

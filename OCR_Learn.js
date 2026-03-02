@@ -470,6 +470,15 @@ function loadLearnedCorrections_(opts) {
       pattern = String(pattern);
       replacement = String(replacement || '');
 
+      // ── Safety guards: skip obviously destructive rules ──
+      // These mirror the shouldBlockPattern checks in StudentOCR_Profile.js
+      if (pattern.length <= 2) {
+        // Single/double-char patterns like '{', '}', 'M', '1' destroy LaTeX
+        continue;
+      }
+      if (pattern === replacement) continue;  // no-op
+      if (!replacement && pattern.length < 5) continue;  // short deletion
+
       rules.push({
         pattern: pattern,
         replacement: replacement,
