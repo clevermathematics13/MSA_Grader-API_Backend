@@ -283,6 +283,12 @@ function testStudentWorkOcr(fileId, options = {}) {
         crossedOffResult.cleanedText,
         { minFrequency: (typeof MSA_OCR_LEARN_MIN_FREQUENCY !== 'undefined') ? MSA_OCR_LEARN_MIN_FREQUENCY : 2 }
       );
+      // Log what the rules actually did
+      if (learnedResult.applied && learnedResult.applied.length > 0) {
+        learnedResult.applied.forEach(function(a) {
+          msaLog_('  📘 "' + a.pattern.substring(0, 40) + '" → "' + (a.replacement || '').substring(0, 40) + '" (×' + a.count + ')');
+        });
+      }
     } catch (learnErr) {
       msaLog_('Learned corrections pass skipped: ' + learnErr.message);
     }
@@ -304,6 +310,8 @@ function testStudentWorkOcr(fileId, options = {}) {
         msaLog_('Student profile corrections skipped: ' + profileErr.message);
       }
     }
+
+    msaLog_('📍 Checkpoint: corrections done, elapsed ' + (Date.now() - t0) + 'ms');
 
     const processingTime = Date.now() - t0;
     
@@ -332,6 +340,8 @@ function testStudentWorkOcr(fileId, options = {}) {
       imageDataUrl = `data:${mimeType};base64,${base64Image}`;
     }
     
+    msaLog_('📍 Checkpoint: image encoded, imageDataUrl length=' + (imageDataUrl ? imageDataUrl.length : 'null') + ', elapsed ' + (Date.now() - t0) + 'ms');
+
     // Calculate confidence from OCR result
     // Mathpix confidence is often very low for handwritten content (like 0.02)
     // because it's trained primarily on printed math
@@ -359,8 +369,8 @@ function testStudentWorkOcr(fileId, options = {}) {
     
     // Detect if math is present
     const mathDetected = (ocrResult.text || '').includes('\\') || (ocrResult.latex_styled || '').includes('\\');
-    
-    return {
+
+    var returnPayload = {
       status: 'success',
       fileId: fileId,
       fileName: file.getName(),
@@ -398,6 +408,15 @@ function testStudentWorkOcr(fileId, options = {}) {
         lineCount: (ocrResult.line_data || []).length
       }
     };
+
+    try {
+      var payloadJson = JSON.stringify(returnPayload);
+      msaLog_('📍 Checkpoint: return payload built, JSON size=' + payloadJson.length + ' bytes (' + Math.round(payloadJson.length / 1024) + 'KB), elapsed ' + (Date.now() - t0) + 'ms');
+    } catch (serErr) {
+      msaLog_('⚠️ Return payload serialization failed: ' + serErr.message);
+    }
+
+    return returnPayload;
   } catch (e) {
     msaErr_(`Error in testStudentWorkOcr: ${e.message}`);
     return {
