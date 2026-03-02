@@ -464,11 +464,15 @@ function loadLearnedCorrections_(opts) {
 
       var pattern = data[r][0];
       var replacement = data[r][1];
-      if (!pattern && !replacement) continue;
+      if (!pattern && pattern !== 0 && !replacement && replacement !== 0) continue;
+
+      // Coerce to String — spreadsheet may return Number/Date objects
+      pattern = String(pattern);
+      replacement = String(replacement || '');
 
       rules.push({
         pattern: pattern,
-        replacement: replacement || '',
+        replacement: replacement,
         frequency: frequency,
         type: data[r][6] || 'replace',
         lastSeen: data[r][3],
