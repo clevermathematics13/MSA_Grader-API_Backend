@@ -110,11 +110,70 @@ function gradeStudentResponse(studentWorkImageId, markschemeDocId, markschemePoi
 }
 
 /**
+ * Segment student text by part markers and return only the section
+ * that belongs to the requested part.  This prevents numbers from
+ * part (b) leaking into the match for part (a)/(ai)/(aii) etc.
+ *
+ * Algorithm:
+ *   1. Scan for main-part markers: (a), (b), (c), …
+ *   2. For the requested part, return lines from that marker to the next.
+ *   3. If no markers found, or the target part is missing, return the
+ *      full text so the caller degrades gracefully.
+ *
+ * @param {string} studentText  Full student OCR text
+ * @param {string} partLabel    Part code from mark scheme, e.g. 'ai', 'aii', 'b'
+ * @returns {string} The segment of student text for that part
+ */
+function getTextForPart_(studentText, partLabel) {
+  if (!partLabel || !studentText) return studentText;
+
+  var mainPart = partLabel.charAt(0).toLowerCase(); // 'a', 'b', 'c'
+  var lines = studentText.split('\n');
+
+  // Scan for main-part markers: (a), (b), (c), etc.
+  // We look for lines that contain a part marker at the start or after whitespace.
+  // Matches: "(a)", "(a)(i)", "(b)", but NOT bare sub-parts like "(i)" without main.
+  var partBoundaries = [];  // { part: 'a', lineIdx: 0 }, ...
+
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/\(\s*([a-z])\s*\)/i);
+    if (m) {
+      var part = m[1].toLowerCase();
+      // Only record the FIRST occurrence of each main part
+      var alreadySeen = partBoundaries.some(function(b) { return b.part === part; });
+      if (!alreadySeen) {
+        partBoundaries.push({ part: part, lineIdx: i });
+      }
+    }
+  }
+
+  // No part markers found → return full text (backward-compatible)
+  if (partBoundaries.length === 0) return studentText;
+
+  // Find the target main part
+  var targetIdx = -1;
+  for (var j = 0; j < partBoundaries.length; j++) {
+    if (partBoundaries[j].part === mainPart) { targetIdx = j; break; }
+  }
+  if (targetIdx === -1) return studentText;  // target part not found
+
+  var startLine = partBoundaries[targetIdx].lineIdx;
+  var endLine = lines.length;
+
+  // End at the next main part boundary
+  if (targetIdx + 1 < partBoundaries.length) {
+    endLine = partBoundaries[targetIdx + 1].lineIdx;
+  }
+
+  return lines.slice(startLine, endLine).join('\n');
+}
+
+/**
  * The core matching engine. Compares student text to a markscheme requirement.
  * This is a simple keyword-based approach and can be improved over time.
  * @param {string} studentOcrText The full OCR text from the student's work.
  * @param {string} requirementText The requirement text from a single markscheme point.
- * @param {object} options Additional options like {isImplied: true, dependsOn: [...], allResults: [...]}
+ * @param {object} options Additional options like {isImplied: true, part: 'ai', dependsOn: [...], allResults: [...]}
  * @returns {{awarded: boolean, score: number}}
  */
 function srgMatchRequirement_(studentOcrText, requirementText, options) {
@@ -134,16 +193,27 @@ function srgMatchRequirement_(studentOcrText, requirementText, options) {
   }
 
   // --- STRATEGY 1: Exact Assignment Match (e.g., "n=27") ---
-  // This is high confidence and is checked against the whole document.
+  // Part-aware: search within the relevant part segment, not globally.
   const normalizedRequirement = String(requirementText || "").replace(/[\\()]/g, "").trim();
   const assignmentMatch = normalizedRequirement.match(/\b([a-z])\s*=\s*(-?\d+(\.\d+)?)\b/i);
   if (assignmentMatch) {
     const varName = assignmentMatch[1];
     const reqValue = assignmentMatch[2];
     const studentAssignmentRegex = new RegExp(`\\b${varName}\\s*=\\s*${reqValue}\\b`, "i");
-    const normalizedStudentText = String(studentOcrText || "").replace(/[\\()]/g, "");
+
+    // Restrict search to the relevant part segment
+    var s1SearchText = studentOcrText;
+    var s1PartRestricted = false;
+    if (options.part) {
+      var partText = getTextForPart_(studentOcrText, options.part);
+      if (partText !== studentOcrText) {
+        s1SearchText = partText;
+        s1PartRestricted = true;
+      }
+    }
+    const normalizedStudentText = String(s1SearchText || "").replace(/[\\()]/g, "");
     if (studentAssignmentRegex.test(normalizedStudentText)) {
-      return { awarded: true, score: 1.0, details: { type: 'assignment', required: `${varName}=${reqValue}`, found: `${varName}=${reqValue}`, missing: [] } };
+      return { awarded: true, score: 1.0, details: { type: 'assignment', required: `${varName}=${reqValue}`, found: `${varName}=${reqValue}`, missing: [], partRestricted: s1PartRestricted } };
     }
   }
 
@@ -170,19 +240,57 @@ function srgMatchRequirement_(studentOcrText, requirementText, options) {
     }
   }
 
-  // --- STRATEGY 3: Global Numeric Match (Fallback) ---
-  // This is the broad search, now used as a last resort for numeric checks.
+  // --- STRATEGY 3: Part-Aware Numeric Match ---
+  // If we know which part this requirement belongs to, restrict the
+  // numeric search to that part's segment of the student text.
+  // This prevents numbers from part (b) leaking into part (a)'s match.
   if (requirementNumbers.length > 0) {
-    const studentNumbers = new Set(getNumbers(studentOcrText));
+    var s3SearchText = studentOcrText;
+    var s3PartRestricted = false;
+    if (options.part) {
+      var s3PartText = getTextForPart_(studentOcrText, options.part);
+      if (s3PartText !== studentOcrText) {
+        s3SearchText = s3PartText;
+        s3PartRestricted = true;
+      }
+    }
+
+    const studentNumbers = new Set(getNumbers(s3SearchText));
     const foundNumbers = requirementNumbers.filter(num => studentNumbers.has(num));
     const numberMatchRatio = foundNumbers.length / requirementNumbers.length;
 
-    // If all required numbers are found, it's a very strong match.
+    // If all required numbers are found in the correct part → strong match.
     if (numberMatchRatio === 1.0) {
-      return { awarded: true, score: 1.0, details: { type: 'numeric', required: requirementNumbers, found: foundNumbers, missing: [], student_numbers: Array.from(studentNumbers) } };
+      return { awarded: true, score: 1.0, details: { type: 'numeric', required: requirementNumbers, found: foundNumbers, missing: [], student_numbers: Array.from(studentNumbers), partRestricted: s3PartRestricted } };
     }
-    // If some but not all numbers are found, it's a partial match.
-    // We can use this score directly.
+
+    // If part-restricted search missed numbers, check if they exist globally.
+    // If found globally but NOT in the correct part → do NOT award (cross-part leak).
+    if (s3PartRestricted && numberMatchRatio < 1.0) {
+      var globalStudentNumbers = new Set(getNumbers(studentOcrText));
+      var globalFoundNumbers = requirementNumbers.filter(num => globalStudentNumbers.has(num));
+      var globalRatio = globalFoundNumbers.length / requirementNumbers.length;
+
+      if (globalRatio > numberMatchRatio) {
+        return {
+          awarded: false,
+          score: globalRatio * 0.2,  // heavily penalized — numbers are in the wrong part
+          details: {
+            type: 'numeric',
+            required: requirementNumbers,
+            found: foundNumbers,
+            missing: requirementNumbers.filter(num => !studentNumbers.has(num)),
+            student_numbers: Array.from(studentNumbers),
+            globalFound: globalFoundNumbers,
+            partRestricted: true,
+            crossPartLeak: true,
+            note: 'Numbers found in text but NOT in part (' + (options.part || '') + ') segment — likely from another part'
+          }
+        };
+      }
+    }
+
+    // Normal case: partial match within the (possibly restricted) segment
     return {
       awarded: numberMatchRatio > 0.8,
       score: numberMatchRatio,
@@ -191,7 +299,8 @@ function srgMatchRequirement_(studentOcrText, requirementText, options) {
         required: requirementNumbers,
         found: foundNumbers,
         missing: requirementNumbers.filter(num => !studentNumbers.has(num)),
-        student_numbers: Array.from(studentNumbers)
+        student_numbers: Array.from(studentNumbers),
+        partRestricted: s3PartRestricted
       }
     };
   }

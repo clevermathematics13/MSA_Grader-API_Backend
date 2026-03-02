@@ -239,6 +239,12 @@ function ocrFindNearMisses(ocrText, expected) {
   var ocrTokens = extractNumericTokens_(ocrText);
   var nearMisses = [];
 
+  // Build a set of ALL expected values (strings) for quick "is this already correct?" checks.
+  // If the OCR text contains "1003" and "1003" IS an expected value, we must NOT
+  // flag it as a near-miss for some other expected value like "196".
+  var expectedSet = {};
+  expected.forEach(function(e) { expectedSet[e.raw] = true; });
+
   expected.forEach(function(exp) {
     var expectedStr = exp.raw;
 
@@ -251,19 +257,19 @@ function ocrFindNearMisses(ocrText, expected) {
 
     // 2. Look for near-misses among OCR numeric tokens
     ocrTokens.forEach(function(tok) {
-      // Only compare tokens of the same length (±0)
-      // OR one char shorter/longer (digit insertion/deletion)
-      var lenDiff = Math.abs(tok.raw.length - expectedStr.length);
-      if (lenDiff > 1) return;
+      // CRITICAL GUARD: If the OCR token is itself an expected mark-scheme value,
+      // do NOT flag it. The student wrote a correct value for another part —
+      // it makes no sense to "correct" 1003 → 196.
+      if (expectedSet[tok.raw]) return;
 
-      var result;
-      if (lenDiff === 0) {
-        // Same length — character-by-character shape comparison
-        result = shapeSimilarityScore_(tok.raw, expectedStr);
-      } else {
-        // Length differs by 1 — try insertion/deletion alignment
-        result = bestAlignmentScore_(tok.raw, expectedStr);
-      }
+      // Only compare tokens of the same length (±0)
+      // Length-mismatch comparisons (insertion/deletion) produce far too many
+      // false positives (e.g. 335→2835, 7→27) so we disable them entirely.
+      var lenDiff = Math.abs(tok.raw.length - expectedStr.length);
+      if (lenDiff > 0) return;
+
+      // Same length — character-by-character shape comparison
+      var result = shapeSimilarityScore_(tok.raw, expectedStr);
 
       if (result && result.score > 0) {
         nearMisses.push({
@@ -296,7 +302,10 @@ function ocrFindNearMisses(ocrText, expected) {
     }
   });
 
-  return Object.keys(bestByOcr).map(function(k) { return bestByOcr[k]; });
+  // Cap at 10 to avoid overwhelming the teacher with noise
+  var finalList = Object.keys(bestByOcr).map(function(k) { return bestByOcr[k]; });
+  finalList.sort(function(a, b) { return b.confidence - a.confidence; });
+  return finalList.slice(0, 10);
 }
 
 /**

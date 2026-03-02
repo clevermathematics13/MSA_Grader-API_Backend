@@ -59,6 +59,30 @@
       .zoom-toolbar .zoom-level { font-size: 12px; color: #666; min-width: 42px; text-align: center; }
       #student-ocr-textarea { width: 100%; flex: 1; font-family: 'Courier New', monospace; font-size: 13px; resize: none; }
       .ocr-meta { font-size: 12px; color: #666; margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 4px; }
+      @keyframes ocrSavePulse {
+        0%   { opacity: 1; transform: scale(1); }
+        50%  { opacity: 0.6; transform: scale(1.15); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      .ocr-save-anim {
+        display: inline-block;
+        animation: ocrSavePulse 0.7s ease-in-out infinite;
+        font-size: 13px;
+        letter-spacing: 1px;
+      }
+      @keyframes ocrSaveGlow {
+        0%   { background-position: 0% 50%; }
+        100% { background-position: 200% 50%; }
+      }
+      .ocr-save-shimmer {
+        background: linear-gradient(90deg, #6f42c1, #e74c3c, #f39c12, #28a745, #6f42c1);
+        background-size: 200% 100%;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: ocrSaveGlow 1.5s linear infinite;
+        font-weight: 600;
+      }
       .confidence-indicator { display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
       .confidence-high { background-color: #d4edda; color: #155724; }
       .confidence-medium { background-color: #fff3cd; color: #856404; }
@@ -318,6 +342,90 @@
         text-decoration: line-through;
       }
       
+      /* Inline correction detail panel */
+      .correction-detail-panel {
+        background: #fffde7;
+        border: 1px solid #f9a825;
+        border-radius: 6px;
+        padding: 12px 14px;
+        margin: 6px 0;
+        font-size: 12px;
+        animation: corrPanelSlide 0.2s ease-out;
+      }
+      @keyframes corrPanelSlide {
+        from { opacity: 0; max-height: 0; }
+        to   { opacity: 1; max-height: 400px; }
+      }
+      .correction-detail-panel .cdp-header {
+        font-weight: 700;
+        font-size: 13px;
+        margin-bottom: 8px;
+        color: #333;
+      }
+      .correction-detail-panel .cdp-reasoning {
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #555;
+      }
+      .correction-detail-panel .cdp-reasoning .cdp-strategy {
+        font-weight: 600;
+        color: #1976d2;
+      }
+      .correction-detail-panel .cdp-reasoning .cdp-found {
+        color: #28a745;
+      }
+      .correction-detail-panel .cdp-reasoning .cdp-missing {
+        color: #dc3545;
+      }
+      .correction-detail-panel label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 3px;
+        color: #333;
+      }
+      .correction-detail-panel select,
+      .correction-detail-panel textarea {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: inherit;
+      }
+      .correction-detail-panel textarea {
+        min-height: 50px;
+        resize: vertical;
+      }
+      .correction-detail-panel .cdp-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .correction-detail-panel .cdp-actions button {
+        padding: 6px 16px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .cdp-confirm {
+        background: #f9a825;
+        color: #333;
+        border: 1px solid #f57f17;
+      }
+      .cdp-confirm:hover { background: #f57f17; color: #fff; }
+      .cdp-cancel {
+        background: #f5f5f5;
+        color: #666;
+        border: 1px solid #ccc;
+      }
+      .cdp-cancel:hover { background: #e0e0e0; }
+
       /* Save corrections button */
       #save-corrections-btn {
         background: #4CAF50;
@@ -574,11 +682,13 @@
               <textarea id="student-ocr-textarea" placeholder="OCR text will appear here..." style="display: block;"></textarea>
               <div id="student-ocr-rendered" style="display: none; flex: 1; overflow: auto; border: 1px solid #ddd; border-radius: 4px; padding: 15px; background: white; font-size: 14px; line-height: 1.6;"></div>
               <div class="ocr-meta">
+                <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 4px;">📊 OCR Analysis</div>
                 <strong>Confidence:</strong> <span id="ocr-confidence" class="confidence-indicator">-</span><br>
                 <strong>Math Detected:</strong> <span id="ocr-math-detected">-</span><br>
                 <strong>Markers Detected:</strong> <span id="ocr-markers-detected" style="font-weight: 500;">-</span><br>
                 <strong>Crossed-Off Cleanup:</strong> <span id="ocr-crossed-off" style="font-weight: 500;">-</span><br>
                 <strong>Learned Corrections:</strong> <span id="ocr-learned" style="font-weight: 500;">-</span><br>
+                <strong>Student Profile:</strong> <span id="ocr-student-profile" style="font-weight: 500;">-</span><br>
                 <strong>Processing Time:</strong> <span id="ocr-processing-time">-</span>
               </div>
             </div>
@@ -1212,6 +1322,32 @@
             learnedSpan.title = 'Save corrected OCR to start teaching the system';
           }
           
+          // Display student profile status
+          const profileSpan = document.getElementById('ocr-student-profile');
+          if (result.studentProfile && result.studentProfile.stats.rulesApplied > 0) {
+            var sp = result.studentProfile;
+            profileSpan.textContent = '👤 ' + sp.stats.totalReplacements + ' fix(es) from ' + sp.stats.rulesApplied + ' personal rule(s)';
+            profileSpan.style.color = '#e74c3c';
+            profileSpan.title = sp.applied.map(function(a) {
+              return '"' + a.pattern + '" \u2192 "' + a.replacement + '" (\u00d7' + a.count + ', freq:' + a.frequency + ', ' + a.strategy + ')';
+            }).join('\n');
+          } else if (result.studentProfile && result.studentProfile.summary && result.studentProfile.summary.totalRules > 0) {
+            var sum = result.studentProfile.summary;
+            profileSpan.textContent = sum.totalRules + ' rule(s) for ' + sum.studentId + ', none matched';
+            profileSpan.style.color = '#6c757d';
+            profileSpan.title = 'Top patterns:\n' + sum.topRules.slice(0, 5).map(function(r) {
+              return '"' + r.pattern + '" \u2192 "' + r.replacement + '" (\u00d7' + r.frequency + ')';
+            }).join('\n');
+          } else if (result.detectedStudentId) {
+            profileSpan.textContent = 'No profile yet for ' + result.detectedStudentId;
+            profileSpan.style.color = '#6c757d';
+            profileSpan.title = 'Save corrected OCR to build a personal profile for this student';
+          } else {
+            profileSpan.textContent = 'No student detected';
+            profileSpan.style.color = '#adb5bd';
+            profileSpan.title = 'No QR code found \u2014 student profile requires QR-encoded student ID';
+          }
+          
           // Display detected question code
           const qCodeSpan = document.getElementById('detected-question-code');
           if (result.detectedQuestionCode) {
@@ -1269,11 +1405,76 @@
         }
       }
       
+      // ── Save animation helpers ──
+      var saveAnimTimers_ = [];
+
+      function startSaveAnimation_() {
+        var learnedSpan = document.getElementById('ocr-learned');
+        var profileSpan = document.getElementById('ocr-student-profile');
+
+        // Emoji sequences that tell a mini "learning" story
+        var learnFrames = [
+          '📡 Diffing…',
+          '🔬 Extracting patterns…',
+          '🧬 Analyzing corrections…',
+          '🧠 Teaching the brain…',
+          '💡 Learning…',
+          '📚 Storing rules…',
+          '✨ Almost there…'
+        ];
+        var profileFrames = [
+          '🔍 Scanning handwriting…',
+          '✏️ Reading quirks…',
+          '🧩 Matching patterns…',
+          '👤 Building profile…',
+          '📝 Recording style…',
+          '🎯 Personalizing…',
+          '⚡ Finalizing…'
+        ];
+
+        var idx = 0;
+        function tick() {
+          var frame = idx % learnFrames.length;
+          if (learnedSpan) {
+            learnedSpan.innerHTML = '<span class="ocr-save-anim">' + learnFrames[frame] + '</span>';
+            learnedSpan.style.color = '';
+          }
+          if (profileSpan) {
+            profileSpan.innerHTML = '<span class="ocr-save-anim">' + profileFrames[frame] + '</span>';
+            profileSpan.style.color = '';
+          }
+          idx++;
+        }
+        tick();
+        saveAnimTimers_.push(setInterval(tick, 900));
+      }
+
+      function stopSaveAnimation_(success) {
+        saveAnimTimers_.forEach(clearInterval);
+        saveAnimTimers_ = [];
+        // Brief "done" flash before the real values overwrite
+        if (success) {
+          var learnedSpan = document.getElementById('ocr-learned');
+          var profileSpan = document.getElementById('ocr-student-profile');
+          if (learnedSpan) {
+            learnedSpan.innerHTML = '<span class="ocr-save-shimmer">✅ Updated!</span>';
+          }
+          if (profileSpan) {
+            profileSpan.innerHTML = '<span class="ocr-save-shimmer">✅ Updated!</span>';
+          }
+        }
+      }
+
       function saveStudentOcrCorrection() {
         if (!currentStudentOcrData) return;
         
         const correctedText = document.getElementById('student-ocr-textarea').value;
-        const originalText = currentStudentOcrData.ocrText || '';
+        // Use the CLEANED text (what was displayed in the textarea) as the baseline,
+        // not the raw Mathpix output. The textarea was populated with cleanedOcrText,
+        // so the diff should only capture the user's MANUAL edits — not the automated
+        // CJK stripping, global corrections, or student profile corrections that
+        // were already applied before the user saw the text.
+        const originalText = currentStudentOcrData.cleanedOcrText || currentStudentOcrData.ocrText || '';
         const questionCode = currentStudentOcrData.detectedQuestionCode || '';
         const studentId = currentStudentOcrData.detectedStudentId || '';
         const examName = currentStudentOcrData.detectedExamName || '';
@@ -1286,23 +1487,101 @@
         
         var saveLabel = studentId ? ('student ' + studentId + ' / ' + questionCode) : questionCode;
         log('💾 Saving corrected OCR for ' + saveLabel + '...', 'info');
+
+        // 🎬 Start the animation immediately
+        startSaveAnimation_();
         
         google.script.run
           .withSuccessHandler(function(result) {
+            stopSaveAnimation_(true);
             var msg = '✅ Corrected OCR saved';
             if (result && result.studentId) {
               msg += ' for student ' + result.studentId + ' / ' + result.questionCode;
             }
             msg += '.';
+            // Update the meta panel spans to reflect the new learning state
+            var globalNew = 0, globalReinforced = 0, globalTotal = 0;
             if (result && result.learned) {
-              if (result.learned.saved > 0 || result.learned.updated > 0) {
-                msg += ' 🧠 Learned: ' + result.learned.saved + ' new rule(s), ' +
-                       result.learned.updated + ' reinforced (' + result.learned.total + ' total).';
+              globalNew = result.learned.saved || 0;
+              globalReinforced = result.learned.updated || 0;
+              globalTotal = result.learned.total || 0;
+              if (globalNew > 0 || globalReinforced > 0) {
+                msg += ' 🧠 Global: ' + globalNew + ' new, ' +
+                       globalReinforced + ' reinforced (' + globalTotal + ' total).';
               }
             }
+            var studentNew = 0, studentReinforced = 0, studentTotal = 0;
+            if (result && result.studentLearned) {
+              studentNew = result.studentLearned.saved || 0;
+              studentReinforced = result.studentLearned.updated || 0;
+              studentTotal = result.studentLearned.total || 0;
+              if (studentNew > 0 || studentReinforced > 0) {
+                msg += ' 👤 Profile: ' + studentNew + ' new, ' +
+                       studentReinforced + ' reinforced (' + studentTotal + ' total).';
+              }
+            }
+            // ── Diagnostic: report correction extraction stats ──
+            if (result && result.diagnostics) {
+              var d = result.diagnostics;
+              msg += ' [diag: ' + d.correctionsExtracted + ' extracted, ' + d.correctionsFiltered + ' filtered]';
+            }
             log(msg, 'success');
+
+            // ── Refresh OCR Analysis panel — ALWAYS update after save ──
+            // Brief delay so the "✅ Updated!" shimmer flash is visible
+            setTimeout(function() {
+              var learnedSpan = document.getElementById('ocr-learned');
+              if (learnedSpan) {
+                if (globalNew > 0 || globalReinforced > 0) {
+                  learnedSpan.innerHTML = '<span class="ocr-save-shimmer">🧠 ' + globalTotal + ' total rule(s) — just saved ' + globalNew + ' new, ' + globalReinforced + ' reinforced</span>';
+                  learnedSpan.title = 'Rules updated by your latest save';
+                } else if (globalTotal > 0) {
+                  learnedSpan.textContent = '🧠 ' + globalTotal + ' rule(s) — no new patterns this save';
+                  learnedSpan.style.color = '#6c757d';
+                  learnedSpan.title = 'Existing rules not affected by this save';
+                } else {
+                  learnedSpan.textContent = '🧠 Save complete — 0 learnable patterns found';
+                  learnedSpan.style.color = '#999';
+                  learnedSpan.title = 'The diff between original and corrected text produced no patterns that passed safety filters';
+                }
+                // Remove shimmer after 4s and settle to static color
+                setTimeout(function() {
+                  learnedSpan.style.color = (globalNew > 0 || globalReinforced > 0) ? '#6f42c1' : learnedSpan.style.color;
+                  if (learnedSpan.querySelector('.ocr-save-shimmer')) {
+                    learnedSpan.textContent = learnedSpan.textContent; // strips shimmer span
+                  }
+                }, 4000);
+              }
+              var profileSpan = document.getElementById('ocr-student-profile');
+              if (profileSpan && result && result.studentId) {
+                if (studentNew > 0 || studentReinforced > 0) {
+                  profileSpan.innerHTML = '<span class="ocr-save-shimmer">👤 ' + studentTotal + ' rule(s) for ' + result.studentId + ' — just saved ' + studentNew + ' new, ' + studentReinforced + ' reinforced</span>';
+                  profileSpan.title = 'Personal profile updated by your latest save';
+                } else if (studentTotal > 0) {
+                  profileSpan.textContent = '👤 ' + studentTotal + ' rule(s) for ' + result.studentId + ' — no new patterns';
+                  profileSpan.style.color = '#6c757d';
+                  profileSpan.title = 'Existing student rules not affected by this save';
+              } else {
+                profileSpan.textContent = '👤 Save complete for ' + result.studentId + ' — 0 learnable patterns';
+                profileSpan.style.color = '#999';
+                profileSpan.title = 'No patterns passed safety filters for this student';
+              }
+              // Remove shimmer after 4s
+              setTimeout(function() {
+                profileSpan.style.color = (studentNew > 0 || studentReinforced > 0) ? '#e74c3c' : profileSpan.style.color;
+                if (profileSpan.querySelector('.ocr-save-shimmer')) {
+                  profileSpan.textContent = profileSpan.textContent;
+                }
+              }, 4000);
+            }
+            }, 500); // end setTimeout delay for shimmer flash
           })
           .withFailureHandler(err => {
+            stopSaveAnimation_(false);
+            var learnedSpan = document.getElementById('ocr-learned');
+            var profileSpan = document.getElementById('ocr-student-profile');
+            if (learnedSpan) { learnedSpan.textContent = '❌ Save failed'; learnedSpan.style.color = '#dc3545'; }
+            if (profileSpan) { profileSpan.textContent = '❌ Save failed'; profileSpan.style.color = '#dc3545'; }
             log(`❌ Failed to save: ${err.message}`, 'error');
             alert(`Error saving: ${err.message}`);
           })
@@ -1401,7 +1680,7 @@
             document.getElementById('grade-student-work-btn').disabled = false;
             alert(`Grading error: ${err.message}`);
           })
-          .gradeStudentWorkWithMarkscheme(studentText, questionCode);
+          .gradeStudentWorkWithMarkscheme(studentText, questionCode, currentStudentOcrData.detectedStudentId || '');
       }
       
       let gradingStudentViewMode = 'markscheme'; // 'markscheme' or 'rendered'
@@ -1530,16 +1809,20 @@
             const methodBadge = res.branch && res.branch.startsWith('METHOD') ? 
                                 `<span class="method-badge${res.excludedByMethod ? ' dimmed' : ''}" title="${res.excludedByMethod ? 'Not selected (best: ' + (res.selectedMethod || '') + ')' : 'Selected method'}">${res.branch.replace('METHOD','M')}</span>` : '';
             
-            html += `<tr class="${rowClass}${impliedClass}" data-point-idx="${idx}">`;
+            // Encode details for the correction panel (safe for HTML attribute)
+            const detailsJson = JSON.stringify(res.details || {}).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+            html += `<tr class="${rowClass}${impliedClass}" data-point-idx="${idx}" data-details="${detailsJson}">`;
             html += `<td>${status} ${part} ${impliedBadge} ${methodBadge}</td>`;
             html += `<td style="text-align: center;">${markStr}</td>`;
             html += `<td class="req-cell">${reqText}</td>`;
             html += `<td style="text-align: center;">`;
-            html += `<button class="correction-btn ${res.awarded ? 'btn-deny' : 'btn-award'}" onclick="toggleMarkCorrection(${idx})" title="${res.awarded ? 'Remove this mark' : 'Award this mark'}">`;
+            html += `<button class="correction-btn ${res.awarded ? 'btn-deny' : 'btn-award'}" onclick="openCorrectionPanel(${idx})" title="${res.awarded ? 'Remove this mark' : 'Award this mark'}">`;
             html += res.awarded ? '✗' : '✓';
             html += `</button>`;
             html += `</td>`;
             html += '</tr>';
+            // Placeholder row for the correction detail panel (hidden by default)
+            html += `<tr class="correction-panel-row" id="cdp-row-${idx}" style="display:none;"><td colspan="4" style="padding:0;"></td></tr>`;
           });
           
           html += '</table>';
@@ -1584,55 +1867,203 @@
       
       // Track corrections made by teacher
       window.gradingCorrections = {};
-      
+
+      /** Map strategy type codes to human-readable labels */
+      var STRATEGY_LABELS = {
+        'assignment':          '🎯 Strategy 1: Exact Assignment Match (e.g. n = 27)',
+        'contextual_numeric':  '📍 Strategy 2: Contextual Number Match (number near part marker)',
+        'numeric':             '🔢 Strategy 3: Global Numeric Match (number found anywhere in text)',
+        'keyword':             '📝 Strategy 4: Keyword Match',
+        'sigma':               '∑  Strategy 0: Sigma/Summation Equivalence',
+        'none':                '⚠️ No matching strategy could be applied'
+      };
+
+      /** Reason categories for teacher corrections */
+      var CORRECTION_REASONS = [
+        { value: '', label: '— Select a reason —' },
+        { value: 'wrong_part', label: 'Number/evidence is from a different part' },
+        { value: 'coincidental', label: 'Number is coincidental, not the required value' },
+        { value: 'notation_diff', label: 'Student used different notation (should match)' },
+        { value: 'implied_work', label: 'Correct answer implies this step was done' },
+        { value: 'partial_credit', label: 'Partial work deserves credit' },
+        { value: 'method_wrong', label: 'Wrong method selected — should use different method' },
+        { value: 'ocr_error', label: 'OCR misread — student actually wrote something different' },
+        { value: 'mark_scheme_issue', label: 'Mark scheme parsing issue — requirement is wrong' },
+        { value: 'other', label: 'Other (explain in notes)' }
+      ];
+
       /**
-       * Toggle a mark's awarded status (teacher correction).
-       * @param {number} idx Index of the point in the results array.
+       * Build the "grader reasoning" HTML from a result's details object.
        */
-      function toggleMarkCorrection(idx) {
+      function buildReasoningHtml_(details) {
+        if (!details || details.type === 'none') {
+          return '<em>No matching strategy fired. The grader found nothing to compare.</em>';
+        }
+        var html = '<span class="cdp-strategy">' + (STRATEGY_LABELS[details.type] || details.type) + '</span><br>';
+        if (details.required && details.required.length) {
+          html += '<strong>Required:</strong> ' + details.required.join(', ') + '<br>';
+        }
+        if (details.found && details.found.length) {
+          html += '<strong>Found:</strong> <span class="cdp-found">' + details.found.join(', ') + '</span><br>';
+        }
+        if (details.missing && details.missing.length) {
+          html += '<strong>Missing:</strong> <span class="cdp-missing">' + details.missing.join(', ') + '</span><br>';
+        }
+        if (details.student_numbers && details.student_numbers.length) {
+          html += '<strong>All student numbers:</strong> ' + details.student_numbers.slice(0, 20).join(', ');
+          if (details.student_numbers.length > 20) html += ' … (' + details.student_numbers.length + ' total)';
+          html += '<br>';
+        }
+        if (details.impliedReason) {
+          html += '<strong>Implication:</strong> ' + details.impliedReason + '<br>';
+        }
+        if (details.learnedRule) {
+          html += '<strong>Learned rule:</strong> ' + details.learnedRule + '<br>';
+        }
+        return html;
+      }
+
+      /**
+       * Open the correction detail panel below a marking point row.
+       * Shows grader reasoning and asks teacher WHY they disagree.
+       */
+      function openCorrectionPanel(idx) {
         if (!window.currentGradingResult || !window.currentGradingResult.results) return;
-        
-        const result = window.currentGradingResult.results[idx];
-        const originalAwarded = result.awarded;
-        const newAwarded = !originalAwarded;
-        
-        // Track the correction
+
+        // Close any already-open panel
+        var existing = document.querySelector('.correction-panel-row[style*="table-row"]');
+        if (existing) {
+          existing.style.display = 'none';
+          existing.querySelector('td').innerHTML = '';
+        }
+
+        var res = window.currentGradingResult.results[idx];
+        var panelRow = document.getElementById('cdp-row-' + idx);
+        if (!panelRow) return;
+
+        var willAward = !res.awarded;
+        var actionVerb = willAward ? 'Award' : 'Remove';
+        var actionEmoji = willAward ? '✅' : '❌';
+
+        // Build the panel content
+        var html = '<div class="correction-detail-panel">';
+        html += '<div class="cdp-header">' + actionEmoji + ' ' + actionVerb + ' mark ' + res.point_id + ' — ' + (res.marks || []).join('') + '</div>';
+
+        // Grader reasoning section
+        html += '<div class="cdp-reasoning">';
+        html += '<strong>🤖 Grader\'s reasoning:</strong><br>';
+        html += buildReasoningHtml_(res.details);
+        if (res.awardedByImplication) {
+          html += '<br><em>This mark was awarded by <strong>implication</strong> (correct subsequent answer implies this step).</em>';
+        }
+        if (res.excludedByMethod) {
+          html += '<br><em>This mark is from <strong>' + (res.branch || '').replace('METHOD', 'Method ') + '</strong>, which was not selected. Best: ' + (res.selectedMethod || '').replace('METHOD', 'Method ') + '.</em>';
+        }
+        html += '</div>';
+
+        // Reason dropdown
+        html += '<label>Why is the grader wrong?</label>';
+        html += '<select id="cdp-reason-' + idx + '">';
+        CORRECTION_REASONS.forEach(function(r) {
+          html += '<option value="' + r.value + '">' + r.label + '</option>';
+        });
+        html += '</select>';
+
+        // Notes field
+        html += '<label style="margin-top:8px;">Notes <span style="font-weight:normal;color:#999;">(optional — be specific, this trains the AI)</span></label>';
+        html += '<textarea id="cdp-notes-' + idx + '" placeholder="e.g. The 1003 is from part (b), not part (ai). The grader should not search globally."></textarea>';
+
+        // Action buttons
+        html += '<div class="cdp-actions">';
+        html += '<button class="cdp-confirm" onclick="confirmCorrection(' + idx + ')">' + actionEmoji + ' ' + actionVerb + ' Mark</button>';
+        html += '<button class="cdp-cancel" onclick="cancelCorrection(' + idx + ')">Cancel</button>';
+        html += '</div>';
+        html += '</div>';
+
+        panelRow.querySelector('td').innerHTML = html;
+        panelRow.style.display = 'table-row';
+
+        // Scroll into view
+        panelRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      /**
+       * Confirm a correction: apply the toggle, store structured feedback, close panel.
+       */
+      function confirmCorrection(idx) {
+        if (!window.currentGradingResult || !window.currentGradingResult.results) return;
+
+        var res = window.currentGradingResult.results[idx];
+        var originalAwarded = res.awarded;
+        var newAwarded = !originalAwarded;
+
+        // Collect structured feedback
+        var reasonSelect = document.getElementById('cdp-reason-' + idx);
+        var notesInput = document.getElementById('cdp-notes-' + idx);
+        var reason = reasonSelect ? reasonSelect.value : '';
+        var notes = notesInput ? notesInput.value.trim() : '';
+
+        // Track the correction with structured data
         window.gradingCorrections[idx] = {
-          pointId: result.point_id,
-          part: result.part,
+          pointId: res.point_id,
+          part: res.part,
+          branch: res.branch || '',
           originalDecision: originalAwarded,
           correctedDecision: newAwarded,
-          requirement: result.requirement
+          requirement: res.requirement,
+          graderStrategy: (res.details || {}).type || 'unknown',
+          graderScore: res.score || 0,
+          reason: reason,
+          notes: notes
         };
-        
-        // Update the display
-        result.awarded = newAwarded;
-        
-        const row = document.querySelector(`tr[data-point-idx="${idx}"]`);
+
+        // Update the result
+        res.awarded = newAwarded;
+
+        // Update the display row
+        var row = document.querySelector('tr[data-point-idx="' + idx + '"]');
         if (row) {
           row.classList.remove('awarded', 'not-awarded');
           row.classList.add(newAwarded ? 'awarded' : 'not-awarded', 'corrected');
-          
-          const statusCell = row.cells[0];
-          const statusText = statusCell.innerHTML.replace(/[✅❌]/, newAwarded ? '✅' : '❌');
-          statusCell.innerHTML = statusText;
-          
-          const btn = row.querySelector('.correction-btn');
+
+          var statusCell = row.cells[0];
+          statusCell.innerHTML = statusCell.innerHTML.replace(/[✅❌]/, newAwarded ? '✅' : '❌');
+
+          var btn = row.querySelector('.correction-btn');
           if (btn) {
-            btn.className = `correction-btn ${newAwarded ? 'btn-deny' : 'btn-award'}`;
+            btn.className = 'correction-btn ' + (newAwarded ? 'btn-deny' : 'btn-award');
             btn.innerHTML = newAwarded ? '✗' : '✓';
             btn.title = newAwarded ? 'Remove this mark' : 'Award this mark';
           }
         }
-        
+
+        // Close the panel
+        var panelRow = document.getElementById('cdp-row-' + idx);
+        if (panelRow) {
+          panelRow.style.display = 'none';
+          panelRow.querySelector('td').innerHTML = '';
+        }
+
         // Recalculate score
         recalculateScore();
-        
+
         // Enable save button
-        const saveBtn = document.getElementById('save-corrections-btn');
+        var saveBtn = document.getElementById('save-corrections-btn');
         if (saveBtn) saveBtn.disabled = Object.keys(window.gradingCorrections).length === 0;
-        
-        log(`Mark ${idx + 1} (${result.point_id}) ${newAwarded ? 'awarded' : 'removed'} by teacher`, 'warn');
+
+        var reasonLabel = reason ? (' [' + reason + ']') : '';
+        log('✏️ Mark ' + (idx + 1) + ' (' + res.point_id + ') ' + (newAwarded ? 'awarded' : 'removed') + reasonLabel, 'warn');
+      }
+
+      /**
+       * Cancel a correction: close the panel without changing anything.
+       */
+      function cancelCorrection(idx) {
+        var panelRow = document.getElementById('cdp-row-' + idx);
+        if (panelRow) {
+          panelRow.style.display = 'none';
+          panelRow.querySelector('td').innerHTML = '';
+        }
       }
       
       /**
@@ -1673,34 +2104,38 @@
           return;
         }
         
-        const teacherNotes = prompt('Any notes about these corrections? (optional)', '');
-        const questionCode = window.currentGradingResult.questionCode;
-        const studentText = currentStudentOcrData ? currentStudentOcrData.studentText : '';
+        var questionCode = window.currentGradingResult.questionCode;
+        var studentText = currentStudentOcrData ? (currentStudentOcrData.cleanedOcrText || currentStudentOcrData.ocrText || '') : '';
         
-        let saved = 0;
-        let failed = 0;
+        var saved = 0;
+        var failed = 0;
         
-        corrections.forEach((corr, i) => {
+        corrections.forEach(function(corr, i) {
+          // Combine the structured reason + notes into a rich teacherNotes string
+          var teacherNotes = '';
+          if (corr.reason) teacherNotes += '[' + corr.reason + '] ';
+          if (corr.notes) teacherNotes += corr.notes;
+          if (corr.graderStrategy) teacherNotes += ' {strategy:' + corr.graderStrategy + ',score:' + (corr.graderScore || 0).toFixed(2) + '}';
+
           google.script.run
-            .withSuccessHandler(result => {
+            .withSuccessHandler(function(result) {
               saved++;
               if (saved + failed === corrections.length) {
-                log(`✅ Saved ${saved} corrections (${failed} failed)`, saved > 0 ? 'success' : 'error');
-                alert(`Saved ${saved} corrections for AI learning.`);
+                log('✅ Saved ' + saved + ' corrections (' + failed + ' failed)', saved > 0 ? 'success' : 'error');
+                alert('Saved ' + saved + ' correction(s) for AI learning.');
                 window.gradingCorrections = {};
                 document.getElementById('save-corrections-btn').disabled = true;
                 
-                // Remove corrected class from all rows
-                document.querySelectorAll('.grading-table tr.corrected').forEach(row => {
+                document.querySelectorAll('.grading-table tr.corrected').forEach(function(row) {
                   row.classList.remove('corrected');
                 });
               }
             })
-            .withFailureHandler(err => {
+            .withFailureHandler(function(err) {
               failed++;
               console.error('Failed to save correction:', err);
               if (saved + failed === corrections.length) {
-                log(`Saved ${saved} corrections (${failed} failed)`, failed > 0 ? 'warn' : 'success');
+                log('Saved ' + saved + ' corrections (' + failed + ' failed)', failed > 0 ? 'warn' : 'success');
               }
             })
             .saveGradingCorrection(

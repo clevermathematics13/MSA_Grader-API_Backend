@@ -287,6 +287,24 @@ function testStudentWorkOcr(fileId, options = {}) {
       msaLog_('Learned corrections pass skipped: ' + learnErr.message);
     }
 
+    // ── Per-student corrections (writer-adaptive) ──
+    // Runs AFTER global corrections so student-specific fixes
+    // can override or supplement class-wide patterns.
+    var studentProfileResult = { text: learnedResult.text, applied: [], stats: { rulesLoaded: 0, rulesApplied: 0, totalReplacements: 0, studentId: null } };
+    var studentProfileSummary = null;
+    if (detectedStudentId) {
+      try {
+        studentProfileResult = applyStudentCorrections_(
+          detectedStudentId,
+          learnedResult.text,
+          { minFrequency: (typeof MSA_STUDENT_OCR_MIN_FREQUENCY !== 'undefined') ? MSA_STUDENT_OCR_MIN_FREQUENCY : 1 }
+        );
+        studentProfileSummary = getStudentProfileSummary_(detectedStudentId);
+      } catch (profileErr) {
+        msaLog_('Student profile corrections skipped: ' + profileErr.message);
+      }
+    }
+
     const processingTime = Date.now() - t0;
     
     // For preview, handle TIFF files specially since browsers don't support them
@@ -364,10 +382,15 @@ function testStudentWorkOcr(fileId, options = {}) {
         stats: crossedOffResult.stats,
         lineAnnotations: crossedOffResult.lineAnnotations
       },
-      cleanedOcrText: learnedResult.text,
+      cleanedOcrText: studentProfileResult.text,
       learnedCorrections: {
         applied: learnedResult.applied,
         stats: learnedResult.stats
+      },
+      studentProfile: {
+        applied: studentProfileResult.applied,
+        stats: studentProfileResult.stats,
+        summary: studentProfileSummary
       },
       metadata: {
         width: ocrResult.image_width || null,
@@ -579,17 +602,42 @@ function saveStudentOcrCorrection(fileId, correctedText, originalText, questionC
     
     // ── LEARNING: Extract and save correction patterns ──
     var learnResult = { saved: 0, updated: 0, total: 0 };
+    var studentLearnResult = { saved: 0, updated: 0, total: 0 };
+    var diagnostics = { correctionsExtracted: 0, correctionsFiltered: 0 };
     if (originalText && originalText.trim() !== correctedText.trim()) {
       try {
         var corrections = extractCorrections_(originalText, correctedText);
+        diagnostics.correctionsExtracted = corrections.length;
+        msaLog_('📊 Diff engine found ' + corrections.length + ' correction(s) from user edits');
         if (corrections.length > 0) {
+          // Log each extracted correction for debugging
+          corrections.forEach(function(c, idx) {
+            msaLog_('  [' + idx + '] ' + c.type + ': "' + (c.original || '').substring(0, 60) + '" → "' + (c.corrected || '').substring(0, 60) + '"');
+          });
+          // 1. Global learning (class-wide patterns)
           learnResult = saveLearnedCorrections_(corrections, {
             fileId: fileId,
             questionCode: questionCode || '',
             studentId: studentId || ''
           });
-          msaLog_('🧠 Learned ' + corrections.length + ' correction patterns (' +
-                  learnResult.saved + ' new, ' + learnResult.updated + ' reinforced)');
+          diagnostics.correctionsFiltered = corrections.length - learnResult.saved - learnResult.updated;
+          msaLog_('🧠 Global: ' + corrections.length + ' patterns (' +
+                  learnResult.saved + ' new, ' + learnResult.updated + ' reinforced, ' +
+                  diagnostics.correctionsFiltered + ' filtered)');
+
+          // 2. Per-student profile (writer-adaptive)
+          if (studentId) {
+            try {
+              studentLearnResult = saveStudentCorrections_(studentId, corrections, {
+                fileId: fileId,
+                questionCode: questionCode || ''
+              });
+              msaLog_('👤 [' + studentId + '] Profile: ' + corrections.length + ' patterns (' +
+                      studentLearnResult.saved + ' new, ' + studentLearnResult.updated + ' reinforced)');
+            } catch (profileErr) {
+              msaWarn_('Student profile save failed (non-fatal): ' + profileErr.message);
+            }
+          }
         }
       } catch (learnErr) {
         msaWarn_('Learning pass failed (non-fatal): ' + learnErr.message);
@@ -600,7 +648,9 @@ function saveStudentOcrCorrection(fileId, correctedText, originalText, questionC
       status: 'success',
       studentId: studentId || null,
       questionCode: questionCode || null,
-      learned: learnResult
+      learned: learnResult,
+      studentLearned: studentLearnResult,
+      diagnostics: diagnostics
     };
   } catch (e) {
     msaErr_('Error saving OCR correction: ' + e.message);
@@ -1129,9 +1179,10 @@ function detectIfQ1FromOcr(ocrResult) {
  * 
  * @param {string} studentOcrText The OCR text from the student's handwritten work.
  * @param {string} questionCode The question code (e.g., "14M.2.AHL.TZ2.H_1").
+ * @param {string} [studentId] Optional student ID from QR for per-student corrections.
  * @returns {object} Grading result with scores and detailed feedback.
  */
-function gradeStudentWork(studentOcrText, questionCode) {
+function gradeStudentWork(studentOcrText, questionCode, studentId) {
   const t0 = Date.now();
   msaLog_('=== GRADING STUDENT WORK ===');
   msaLog_('Question code: ' + questionCode);
@@ -1158,8 +1209,29 @@ function gradeStudentWork(studentOcrText, questionCode) {
     }
 
     // 2. Clean the student text - remove printed question content
-    const cleanedStudentText = cleanStudentOcrText_(studentOcrText);
+    var cleanedStudentText = cleanStudentOcrText_(studentOcrText);
     msaLog_('Student text length (cleaned): ' + cleanedStudentText.length);
+    
+    // 2a. Apply per-student corrections (writer-adaptive)
+    //     These are safe to apply pre-grading because they are teacher-verified
+    //     patterns specific to THIS student's handwriting (unlike OCR Verify
+    //     which auto-corrects toward mark-scheme answers).
+    var preGradeStudentProfile = null;
+    if (studentId) {
+      try {
+        preGradeStudentProfile = applyStudentCorrections_(
+          studentId, cleanedStudentText,
+          { minFrequency: (typeof MSA_STUDENT_OCR_MIN_FREQUENCY !== 'undefined') ? MSA_STUDENT_OCR_MIN_FREQUENCY : 1 }
+        );
+        if (preGradeStudentProfile.stats.rulesApplied > 0) {
+          cleanedStudentText = preGradeStudentProfile.text;
+          msaLog_('👤 [' + studentId + '] Pre-grade: applied ' + preGradeStudentProfile.stats.rulesApplied +
+            ' personal rules (' + preGradeStudentProfile.stats.totalReplacements + ' replacements)');
+        }
+      } catch (profileErr) {
+        msaLog_('Student profile pre-grade pass skipped: ' + profileErr.message);
+      }
+    }
     
     // 2b. OCR Verification Pass — cross-check numbers against mark-scheme
     //     using glyph-confusion matrix to catch common handwriting OCR errors.
@@ -1222,6 +1294,10 @@ function gradeStudentWork(studentOcrText, questionCode) {
         corrections: ocrVerification.corrections,
         originalText: ocrVerification.originalText,
         verifiedText: ocrVerification.verifiedText
+      } : null,
+      studentProfile: preGradeStudentProfile ? {
+        applied: preGradeStudentProfile.applied,
+        stats: preGradeStudentProfile.stats
       } : null
     };
     
@@ -1393,11 +1469,12 @@ function testGradeStudentWork(studentOcrText, questionCode) {
  * This is the enhanced version for the full grading UI.
  * @param {string} studentOcrText The student's OCR text.
  * @param {string} questionCode The question code.
+ * @param {string} [studentId] Optional student ID from QR for per-student corrections.
  * @returns {object} Grading results with mark scheme HTML.
  */
-function gradeStudentWorkWithMarkscheme(studentOcrText, questionCode) {
+function gradeStudentWorkWithMarkscheme(studentOcrText, questionCode, studentId) {
   // First, do the grading
-  var result = gradeStudentWork(studentOcrText, questionCode);
+  var result = gradeStudentWork(studentOcrText, questionCode, studentId);
   
   if (result.status !== 'success') {
     return result;

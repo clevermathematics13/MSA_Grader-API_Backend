@@ -160,3 +160,115 @@ describe("selectBestMethods", () => {
     expect(result).toHaveLength(2);
   });
 });
+
+
+// ── Part-segmentation helper (mirrors SRG_Grader.js getTextForPart_) ──
+
+function getTextForPart_(studentText, partLabel) {
+  if (!partLabel || !studentText) return studentText;
+  var mainPart = partLabel.charAt(0).toLowerCase();
+  var lines = studentText.split('\n');
+  var partBoundaries = [];
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/\(\s*([a-z])\s*\)/i);
+    if (m) {
+      var part = m[1].toLowerCase();
+      var alreadySeen = partBoundaries.some(function(b) { return b.part === part; });
+      if (!alreadySeen) {
+        partBoundaries.push({ part: part, lineIdx: i });
+      }
+    }
+  }
+  if (partBoundaries.length === 0) return studentText;
+  var targetIdx = -1;
+  for (var j = 0; j < partBoundaries.length; j++) {
+    if (partBoundaries[j].part === mainPart) { targetIdx = j; break; }
+  }
+  if (targetIdx === -1) return studentText;
+  var startLine = partBoundaries[targetIdx].lineIdx;
+  var endLine = lines.length;
+  if (targetIdx + 1 < partBoundaries.length) {
+    endLine = partBoundaries[targetIdx + 1].lineIdx;
+  }
+  return lines.slice(startLine, endLine).join('\n');
+}
+
+describe("getTextForPart_", () => {
+  const studentText = [
+    '(a) (i)',
+    'u_n = 7n + 7',
+    'n = 27',
+    'S_{13} = 728',
+    '(a)(ii)',
+    'sum stuff here',
+    '(b)',
+    'u_n = 1000 + (n-1)(-6)',
+    'n = 335',
+    'n = 1003',
+    '3n = 1003'
+  ].join('\n');
+
+  test("extracts part (a) segment up to part (b)", () => {
+    const seg = getTextForPart_(studentText, 'ai');
+    expect(seg).toContain('n = 27');
+    expect(seg).toContain('sum stuff here');
+    expect(seg).not.toContain('n = 335');
+    expect(seg).not.toContain('n = 1003');
+  });
+
+  test("extracts part (b) segment to end", () => {
+    const seg = getTextForPart_(studentText, 'b');
+    expect(seg).toContain('n = 335');
+    expect(seg).toContain('n = 1003');
+    expect(seg).not.toContain('n = 27');
+  });
+
+  test("returns full text when no part markers found", () => {
+    const plainText = 'just some text\nno markers';
+    expect(getTextForPart_(plainText, 'ai')).toBe(plainText);
+  });
+
+  test("returns full text when target part not found", () => {
+    expect(getTextForPart_(studentText, 'c')).toBe(studentText);
+  });
+
+  test("handles null/empty gracefully", () => {
+    expect(getTextForPart_(null, 'a')).toBeNull();
+    expect(getTextForPart_('text', '')).toBe('text');
+    expect(getTextForPart_('text', null)).toBe('text');
+  });
+});
+
+describe("part-aware numeric matching (anti cross-part leak)", () => {
+  // Simulate the exact scenario from the user's screenshot:
+  // Student writes n=27 in part (a)(i) and n=335, 1003 in part (b).
+  // A Method 3 requirement for part (ai) should NOT match 1003 from part (b).
+  const studentText = [
+    '(a) (i)',
+    'u_n = 7n + 7',
+    'n = 27',
+    'S = 2835',
+    '(b)',
+    'u_n = 1000 + (n-1)(-6)',
+    'n = 335',
+    '3n = 1003',
+  ].join('\n');
+
+  test("part (ai) segment contains 27 and 2835 but NOT 1003 or 335", () => {
+    const seg = getTextForPart_(studentText, 'ai');
+    const nums = (seg.match(/-?\d+(\.\d+)?/g) || []);
+    expect(nums).toContain('27');
+    expect(nums).toContain('2835');
+    expect(nums).not.toContain('1003');
+    expect(nums).not.toContain('335');
+  });
+
+  test("part (b) segment contains 335 and 1003 but NOT 27 or 2835", () => {
+    const seg = getTextForPart_(studentText, 'b');
+    const nums = (seg.match(/-?\d+(\.\d+)?/g) || []);
+    expect(nums).toContain('335');
+    expect(nums).toContain('1003');
+    expect(nums).not.toContain('27');
+    expect(nums).not.toContain('2835');
+  });
+});

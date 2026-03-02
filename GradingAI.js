@@ -50,7 +50,8 @@ function gradeWithImpliedMarks(studentText, markschemePoints, options) {
     msaLog_('[GRADING PASS 1] Grading point ' + (point.id || ('P' + (idx + 1))) + ' | part: ' + (point.part || '') + ' | marks: ' + JSON.stringify(point.marks) + ' | isImplied: ' + implied + ' | requirement: ' + point.requirement);
     if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 1] Grading point ' + (point.id || ('P' + (idx + 1))) + ' | part: ' + (point.part || '') + ' | marks: ' + JSON.stringify(point.marks) + ' | isImplied: ' + implied + ' | requirement: ' + point.requirement);
     const matchResult = srgMatchRequirement_(studentText, point.requirement, {
-      isImplied: implied
+      isImplied: implied,
+      part: point.part || ''
     });
     msaLog_('[GRADING PASS 1] Match result for ' + (point.id || ('P' + (idx + 1))) + ': awarded=' + matchResult.awarded + ', score=' + matchResult.score);
     if (typeof Logger !== 'undefined' && Logger.log) Logger.log('[GRADING PASS 1] Match result for ' + (point.id || ('P' + (idx + 1))) + ': awarded=' + matchResult.awarded + ', score=' + matchResult.score);

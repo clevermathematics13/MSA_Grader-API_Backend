@@ -24,6 +24,17 @@ const MSA_OCR_CORRECTIONS_SPREADSHEET_ID = "";
 // Minimum frequency before a learned correction is auto-applied
 // 1 = apply after first correction, 2 = require two sightings, etc.
 const MSA_OCR_LEARN_MIN_FREQUENCY = 1;
+
+// ── Per-Student OCR Profiles (writer-adaptive corrections) ──
+// Leave empty to auto-create on first save.
+const MSA_STUDENT_PROFILES_SPREADSHEET_ID = "";
+
+// Minimum frequency for a student-level rule to auto-apply.
+// Lower than the global threshold: student patterns are more targeted.
+const MSA_STUDENT_OCR_MIN_FREQUENCY = 1;
+
+// Maximum Levenshtein distance for fuzzy matching (0 = exact only, 1-2 = forgiving)
+const MSA_STUDENT_OCR_FUZZY_DISTANCE = 0;
 // If a part’s command term is one of these, mark points with skip_autograde=true
 const MSA_SKIP_AUTOGRADE_COMMAND_TERMS = ["graph", "draw"];
 

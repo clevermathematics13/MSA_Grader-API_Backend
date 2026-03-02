@@ -109,20 +109,26 @@ function ocrFindNearMisses(ocrText, expected) {
   var ocrTokens = extractNumericTokens_(ocrText);
   var nearMisses = [];
 
+  // Build set of ALL expected values for the "is this already correct?" guard
+  var expectedSet = {};
+  expected.forEach(function(e) { expectedSet[e.raw] = true; });
+
   expected.forEach(function(exp) {
     var expectedStr = exp.raw;
     var exactRe = new RegExp('(?<![\\d.])' + expectedStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\d.])', 'g');
     if (exactRe.test(ocrText)) return;
 
     ocrTokens.forEach(function(tok) {
+      // CRITICAL GUARD: If the OCR token is itself an expected mark-scheme value,
+      // do NOT flag it as a near-miss for some other expected value.
+      if (expectedSet[tok.raw]) return;
+
+      // Only compare same-length tokens (no insertion/deletion)
       var lenDiff = Math.abs(tok.raw.length - expectedStr.length);
-      if (lenDiff > 1) return;
-      var result;
-      if (lenDiff === 0) {
-        result = shapeSimilarityScore_(tok.raw, expectedStr);
-      } else {
-        result = null; // skip insertion/deletion for simplicity in tests
-      }
+      if (lenDiff > 0) return;
+
+      var result = shapeSimilarityScore_(tok.raw, expectedStr);
+
       if (result && result.score > 0) {
         nearMisses.push({
           ocrValue: tok.raw,
@@ -136,7 +142,9 @@ function ocrFindNearMisses(ocrText, expected) {
   });
 
   nearMisses.sort(function(a, b) { return b.confidence - a.confidence; });
-  return nearMisses;
+
+  // Cap at 10
+  return nearMisses.slice(0, 10);
 }
 
 
@@ -295,6 +303,38 @@ describe("ocrFindNearMisses", () => {
     expect(misses).toHaveLength(1);
     expect(misses[0].ocrValue).toBe("21");
     expect(misses[0].expectedValue).toBe("27");
+  });
+
+  test("does NOT flag OCR value that is itself a mark-scheme value", () => {
+    // Student wrote 1003 correctly — mark scheme expects both 1003 AND 196.
+    // Old logic would flag 1003 as a near-miss for 196 (same length, shape confusion).
+    // New logic: 1003 is IN expectedSet, so it must not be flagged at all.
+    const ocrText = "The answer is 1003";
+    const expected = [
+      { raw: "1003", value: 1003, pointId: "P1", part: "a", requirement: "n=1003" },
+      { raw: "1006", value: 1006, pointId: "P2", part: "b", requirement: "S=1006" }
+    ];
+    const misses = ocrFindNearMisses(ocrText, expected);
+    expect(misses).toHaveLength(0);
+  });
+
+  test("different-length tokens are NOT flagged (no insertion/deletion)", () => {
+    // 7 should not be flagged as a near-miss for 27 (different lengths)
+    const ocrText = "x = 7";
+    const expected = [{ raw: "27", value: 27, pointId: "P1", part: "a", requirement: "n=27" }];
+    const misses = ocrFindNearMisses(ocrText, expected);
+    expect(misses).toHaveLength(0);
+  });
+
+  test("caps results at 10", () => {
+    // Generate a text with many tokens that are all same-length near-misses
+    const tokens = [];
+    for (let i = 10; i < 30; i++) tokens.push(i);
+    const ocrText = tokens.join(" ");
+    // Expected value that none of these match exactly
+    const expected = [{ raw: "18", value: 18, pointId: "P1", part: "a", requirement: "n=18" }];
+    const misses = ocrFindNearMisses(ocrText, expected);
+    expect(misses.length).toBeLessThanOrEqual(10);
   });
 });
 
