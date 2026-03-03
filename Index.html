@@ -1246,6 +1246,10 @@
         document.getElementById('test-student-ocr-btn').disabled = false;
 
         try {
+        if (!result) {
+          log('⏱️ Server returned null — request may have timed out. Try again (cached OCR is faster on retry).', 'error');
+          return;
+        }
         if (result.status === 'success') {
           currentStudentOcrData = result;
           

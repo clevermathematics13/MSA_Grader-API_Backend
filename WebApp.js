@@ -339,11 +339,11 @@ function testStudentWorkOcr(fileId, options = {}) {
       // For other image types (PNG, JPG, etc.):
       // If the file is large (>500KB), use a Drive thumbnail URL instead of base64
       // to keep the return payload under google.script.run's size limit (~1-2MB).
-      const blobBytes = file.getBlob().getBytes();
-      var blobSizeKB = Math.round(blobBytes.length / 1024);
+      // Use file.getSize() to avoid the expensive blob read just for a size check.
+      var fileSizeKB = Math.round(file.getSize() / 1024);
 
-      if (blobSizeKB > 500) {
-        msaLog_('Image too large for base64 (' + blobSizeKB + 'KB), using Drive thumbnail URL');
+      if (fileSizeKB > 500) {
+        msaLog_('Image too large for base64 (' + fileSizeKB + 'KB), using Drive thumbnail URL');
         try {
           var thumbUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
           var thumbResp = UrlFetchApp.fetch(thumbUrl, {
@@ -360,7 +360,7 @@ function testStudentWorkOcr(fileId, options = {}) {
           imageDataUrl = null;
         }
       } else {
-        const base64Image = Utilities.base64Encode(blobBytes);
+        const base64Image = Utilities.base64Encode(file.getBlob().getBytes());
         imageDataUrl = `data:${mimeType};base64,${base64Image}`;
       }
     }
