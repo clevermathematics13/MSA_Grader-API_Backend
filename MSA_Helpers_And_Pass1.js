@@ -287,12 +287,41 @@ function msaExtractPageImagesFromDoc_(cfg, docId, folder) {
 }
 
 function msaMathpixOcrFromDriveImage_(fileId, cfg, options) {
+  // ── Cache check: avoid re-calling Mathpix for the same file ──
+  var cacheKey = 'mathpix_ocr_' + fileId;
+  try {
+    var cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached) {
+      msaLog_('Mathpix OCR: cache HIT for ' + fileId);
+      return JSON.parse(cached);
+    }
+  } catch (cacheErr) {
+    // cache miss or parse error — proceed with live call
+  }
+
+  msaLog_('Mathpix OCR: cache MISS for ' + fileId + ', calling API...');
+
   // Fetch the image blob from Drive
   var file = DriveApp.getFileById(fileId);
   var blob = file.getBlob();
   
   // Call the actual Mathpix logic defined in MSA_Mathpix.gs
-  return msaMathpixOCR_(blob, options);
+  var result = msaMathpixOCR_(blob, options);
+
+  // ── Cache the result (up to 100KB, 6-hour TTL) ──
+  try {
+    var json = JSON.stringify(result);
+    if (json.length < 100000) {
+      CacheService.getScriptCache().put(cacheKey, json, 21600); // 6 hours
+      msaLog_('Mathpix OCR: cached result (' + Math.round(json.length/1024) + 'KB)');
+    } else {
+      msaLog_('Mathpix OCR: result too large to cache (' + Math.round(json.length/1024) + 'KB)');
+    }
+  } catch (cacheWriteErr) {
+    msaLog_('Mathpix OCR: cache write failed: ' + cacheWriteErr.message);
+  }
+
+  return result;
 }
 
 function msaBuildCombinedOcr_(cfg, docId, folder, ocrPages) {

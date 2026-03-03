@@ -1069,6 +1069,18 @@ function lookupBoxCoordinates(questionCode, position) {
  * @returns {object|null} Decoded QR data {studentId, questionCode, examName} or null
  */
 function decodeQrFromImage(fileId) {
+  // ── Cache check: same file always has the same QR code ──
+  var cacheKey = 'qr_decode_' + fileId;
+  try {
+    var cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached) {
+      msaLog_('QR decode: cache HIT for ' + fileId);
+      return JSON.parse(cached);
+    }
+  } catch (cacheErr) {
+    // cache miss or parse error — proceed
+  }
+
   try {
     var file = DriveApp.getFileById(fileId);
     var blob = file.getBlob();
@@ -1177,17 +1189,20 @@ function decodeQrFromImage(fileId) {
         try {
           var qrData = JSON.parse(qrContent);
           msaLog_('QR decode: parsed data: ' + JSON.stringify(qrData));
-          return {
+          var qrResult = {
             studentId: qrData.s || qrData.studentId,
             questionCode: qrData.q || qrData.questionCode,
             examName: qrData.e || qrData.examName,
             raw: qrData
           };
+          // Cache for 6 hours
+          try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(qrResult), 21600); } catch(ce) {}
+          return qrResult;
         } catch (e) {
           msaLog_('QR decode: content is not JSON, treating as raw question code: ' + qrContent);
-          return {
-            questionCode: qrContent
-          };
+          var qrResult = { questionCode: qrContent };
+          try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(qrResult), 21600); } catch(ce) {}
+          return qrResult;
         }
       }
     }
