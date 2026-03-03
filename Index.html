@@ -611,6 +611,21 @@
       <div id="status"></div>
     </div>
 
+    <!-- Server Debug Panel (live log stream) -->
+    <div id="debug-container" style="padding: 15px; border: 1px solid #ccc; border-radius: 8px; margin-bottom: 15px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+      <h3 style="cursor: pointer; user-select: none; margin: 0;" onclick="toggleDebugPanel()">
+        🔧 Server Debug Log <span id="debug-toggle-icon" style="font-size: 12px; color: #999;">▶ show</span>
+        <span id="debug-badge" style="display: none; background: #667eea; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle;">0</span>
+      </h3>
+      <div id="debug-panel" style="display: none; margin-top: 10px;">
+        <div id="debug-log" style="min-height: 60px; max-height: 400px; background-color: #1e1e2e; color: #cdd6f4; padding: 10px; border-radius: 5px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6;"></div>
+        <div style="margin-top: 6px; display: flex; gap: 8px; align-items: center;">
+          <button onclick="clearDebugLog()" style="padding: 4px 12px; font-size: 12px; background: #e9ecef; border: 1px solid #ced4da; border-radius: 4px;">Clear</button>
+          <span id="debug-status" style="font-size: 11px; color: #999;">Idle</span>
+        </div>
+      </div>
+    </div>
+
     <div id="modal-backdrop" class="modal-backdrop">
       <div id="modal">
         <h3 id="modal-title">Human Review Required</h3>
@@ -1029,6 +1044,114 @@
         statusDiv.scrollTop = statusDiv.scrollHeight;
       }
 
+      /* ═══════════════════════════════════════════════════
+       * Server Debug Panel — live log streaming
+       * ═══════════════════════════════════════════════════ */
+      var debugSessionId_ = null;
+      var debugPollTimer_ = null;
+      var debugLogIndex_  = 0;   // next entry to fetch
+      var debugTotalCount_ = 0;
+      var debugPanelOpen_ = false;
+
+      function toggleDebugPanel() {
+        debugPanelOpen_ = !debugPanelOpen_;
+        document.getElementById('debug-panel').style.display = debugPanelOpen_ ? 'block' : 'none';
+        document.getElementById('debug-toggle-icon').textContent = debugPanelOpen_ ? '▼ hide' : '▶ show';
+      }
+
+      function clearDebugLog() {
+        document.getElementById('debug-log').innerHTML = '';
+        debugTotalCount_ = 0;
+        updateDebugBadge_(0);
+      }
+
+      function updateDebugBadge_(count) {
+        var badge = document.getElementById('debug-badge');
+        if (count > 0) {
+          badge.textContent = count;
+          badge.style.display = 'inline';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+
+      /** Start a new log session and begin polling. Returns sessionId. */
+      function startDebugSession_() {
+        stopDebugPolling_();
+        clearDebugLog();
+        debugLogIndex_ = 0;
+        document.getElementById('debug-status').textContent = 'Starting session…';
+
+        // Create session on server
+        return new Promise(function(resolve) {
+          google.script.run
+            .withSuccessHandler(function(sessionId) {
+              debugSessionId_ = sessionId;
+              document.getElementById('debug-status').textContent = '🟢 Streaming (session ' + sessionId.substring(0, 8) + '…)';
+              // Auto-open the panel so user sees the stream
+              if (!debugPanelOpen_) toggleDebugPanel();
+              // Start polling every 1 second
+              debugPollTimer_ = setInterval(pollServerLogs_, 1000);
+              resolve(sessionId);
+            })
+            .withFailureHandler(function(err) {
+              console.error('Failed to start log session:', err);
+              document.getElementById('debug-status').textContent = '❌ Session start failed';
+              resolve(null);
+            })
+            .startLogSession();
+        });
+      }
+
+      function pollServerLogs_() {
+        if (!debugSessionId_) return;
+        google.script.run
+          .withSuccessHandler(function(raw) {
+            try {
+              var entries = JSON.parse(raw || '[]');
+              if (entries.length === 0) return;
+              debugLogIndex_ += entries.length;
+              debugTotalCount_ += entries.length;
+              updateDebugBadge_(debugTotalCount_);
+
+              var container = document.getElementById('debug-log');
+              entries.forEach(function(e) {
+                var div = document.createElement('div');
+                div.style.padding = '1px 4px';
+                div.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+                // Color by level
+                if (e.l === 'error') {
+                  div.style.color = '#f38ba8';
+                } else if (e.l === 'warn') {
+                  div.style.color = '#f9e2af';
+                } else {
+                  div.style.color = '#cdd6f4';
+                }
+                div.textContent = e.t + '  ' + (e.l === 'info' ? 'ℹ️' : e.l === 'warn' ? '⚠️' : '❌') + '  ' + e.m;
+                container.appendChild(div);
+              });
+              container.scrollTop = container.scrollHeight;
+            } catch (parseErr) {
+              console.error('Debug poll parse error:', parseErr);
+            }
+          })
+          .withFailureHandler(function(err) {
+            // Silently ignore poll errors — server may have finished
+          })
+          .getServerLogs(debugSessionId_, debugLogIndex_);
+      }
+
+      function stopDebugPolling_() {
+        if (debugPollTimer_) {
+          clearInterval(debugPollTimer_);
+          debugPollTimer_ = null;
+        }
+        if (debugSessionId_) {
+          document.getElementById('debug-status').textContent = '⏹ Session ended (' + debugTotalCount_ + ' entries)';
+          debugSessionId_ = null;
+        }
+      }
+
       function triggerProcessing(questionTitle) {
         log(`Processing: ${questionTitle}...`);
         document.getElementById('process-doc-btn').disabled = true;
@@ -1220,7 +1343,7 @@
         }, 600);
       }
       
-      function testStudentOcr() {
+      async function testStudentOcr() {
         const fileId = prompt("Enter the Google Drive File ID of a student work image:", "");
         if (!fileId) return;
         
@@ -1230,26 +1353,34 @@
         document.getElementById('test-student-ocr-btn').disabled = true;
         showOcrProgress_();
         
+        // Start a debug log session so we can stream server logs live
+        var sessionId = await startDebugSession_();
+        
         // Watchdog: if no response after 30s, show a timeout message
         var ocrWatchdog_ = setTimeout(function() {
-          log('⏱️ No server response after 30 seconds. Server may still be processing — check Executions log. Try clicking Test again (cached OCR is faster).', 'warn');
+          log('⏱️ No server response after 30 seconds. Server may still be processing — check the Debug Log below. Try clicking Test again (cached OCR is faster).', 'warn');
           hideOcrProgress_();
           document.getElementById('test-student-ocr-btn').disabled = false;
+          // Keep polling a bit longer — server may still be running
+          setTimeout(stopDebugPolling_, 15000);
         }, 30000);
 
         google.script.run
           .withSuccessHandler(function(result) {
             clearTimeout(ocrWatchdog_);
+            // Do one final poll to catch any last log entries, then stop
+            setTimeout(function() { pollServerLogs_(); stopDebugPolling_(); }, 1500);
             handleStudentOcrResult(result);
           })
           .withFailureHandler(function(err) {
             clearTimeout(ocrWatchdog_);
+            stopDebugPolling_();
             console.error('[MSA] withFailureHandler FIRED:', err);
             hideOcrProgress_();
             log('❌ OCR test failed: ' + (err.message || err), 'error');
             document.getElementById('test-student-ocr-btn').disabled = false;
           })
-          .testStudentWorkOcr(fileId, { cropRegion: cropRegion });
+          .testStudentWorkOcr(fileId, { cropRegion: cropRegion, logSessionId: sessionId });
       }
       
       function handleStudentOcrResult(raw) {

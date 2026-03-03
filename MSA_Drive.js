@@ -66,15 +66,89 @@ function msaEnsureFolderPath_(parentFolder, pathParts) {
 /**
  * Central logging helpers so we never crash on missing log functions.
  * Use these everywhere (msaLog_, msaWarn_, msaErr_).
+ *
+ * When a log session is active (via startLogSession_ / setLogSession_),
+ * log messages are also buffered to CacheService so the client can
+ * poll getServerLogs() and display them in real time.
  */
+
+/** @type {string|null} Active log-session key (null = no streaming) */
+var currentLogSessionKey_ = null;
+
+/**
+ * Create a new server-side log session. Returns the session ID.
+ * Call this from the client BEFORE starting a long-running function,
+ * then pass the sessionId into the function's options.
+ */
+function startLogSession() {
+  var id = Utilities.getUuid();
+  // Seed the cache entry so getServerLogs doesn't 404
+  CacheService.getScriptCache().put('slog_' + id, JSON.stringify([]), 600); // 10 min TTL
+  return id;
+}
+
+/**
+ * Activate streaming for this execution context.
+ * Called at the top of long-running server functions.
+ */
+function setLogSession_(sessionId) {
+  currentLogSessionKey_ = sessionId ? ('slog_' + sessionId) : null;
+}
+
+/**
+ * Append a single message to the CacheService log buffer.
+ * Keeps only the last 200 entries and stays under 100 KB.
+ */
+function appendToLogSession_(level, msg) {
+  if (!currentLogSessionKey_) return;
+  try {
+    var cache = CacheService.getScriptCache();
+    var raw = cache.get(currentLogSessionKey_);
+    var arr = raw ? JSON.parse(raw) : [];
+    arr.push({
+      t: new Date().toLocaleTimeString(),
+      l: level,
+      m: String(msg)
+    });
+    // Keep tail — CacheService items max 100 KB
+    if (arr.length > 200) arr = arr.slice(arr.length - 200);
+    var json = JSON.stringify(arr);
+    if (json.length < 95000) {
+      cache.put(currentLogSessionKey_, json, 600);
+    }
+  } catch (e) {
+    // Never let log buffering crash the real work
+  }
+}
+
+/**
+ * Poll endpoint: client calls this to get new log entries.
+ * Returns entries from `fromIndex` onward (JSON string).
+ */
+function getServerLogs(sessionId, fromIndex) {
+  if (!sessionId) return '[]';
+  try {
+    var raw = CacheService.getScriptCache().get('slog_' + sessionId);
+    if (!raw) return '[]';
+    var arr = JSON.parse(raw);
+    var slice = arr.slice(fromIndex || 0);
+    return JSON.stringify(slice);
+  } catch (e) {
+    return '[]';
+  }
+}
+
 function msaLog_(msg) {
   Logger.log("ℹ️ " + msg);
+  appendToLogSession_('info', msg);
 }
 
 function msaWarn_(msg) {
   Logger.log("⚠️ " + msg);
+  appendToLogSession_('warn', msg);
 }
 
 function msaErr_(msg) {
   Logger.log("❌ " + msg);
+  appendToLogSession_('error', msg);
 }

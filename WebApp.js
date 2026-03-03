@@ -162,6 +162,10 @@ function runBatchOnUnreconciled(limit) {
  * @returns {object} OCR result with image URL, text, confidence, etc.
  */
 function testStudentWorkOcr(fileId, options = {}) {
+  // Activate log streaming if client passed a session ID
+  if (options.logSessionId) {
+    setLogSession_(options.logSessionId);
+  }
   try {
     const file = DriveApp.getFileById(fileId);
     const mimeType = file.getMimeType();
