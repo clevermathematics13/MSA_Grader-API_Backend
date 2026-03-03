@@ -319,14 +319,16 @@ function testStudentWorkOcr(fileId, options = {}) {
     let imageDataUrl;
     
     if (mimeType === 'image/tiff' || mimeType === 'image/tif') {
-      // TIFF files: Use Drive's thumbnail capability for preview
+      // TIFF files: Use UrlFetchApp to get Drive API thumbnail
       try {
-        const thumbnail = Drive.Files.get(fileId, { fields: 'thumbnailLink' });
-        if (thumbnail.thumbnailLink) {
-          // Use thumbnail URL (requires authentication but works in this context)
-          imageDataUrl = thumbnail.thumbnailLink.replace('=s220', '=s800'); // Larger thumbnail
+        var thumbUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
+        var thumbResp = UrlFetchApp.fetch(thumbUrl, {
+          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+        });
+        var thumbData = JSON.parse(thumbResp.getContentText());
+        if (thumbData.thumbnailLink) {
+          imageDataUrl = thumbData.thumbnailLink.replace('=s220', '=s800');
         } else {
-          // Fallback: indicate TIFF can't be previewed
           imageDataUrl = null;
         }
       } catch (e) {
@@ -343,9 +345,13 @@ function testStudentWorkOcr(fileId, options = {}) {
       if (blobSizeKB > 500) {
         msaLog_('Image too large for base64 (' + blobSizeKB + 'KB), using Drive thumbnail URL');
         try {
-          const meta = Drive.Files.get(fileId, { fields: 'thumbnailLink' });
-          if (meta.thumbnailLink) {
-            imageDataUrl = meta.thumbnailLink.replace('=s220', '=s1600');
+          var thumbUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
+          var thumbResp = UrlFetchApp.fetch(thumbUrl, {
+            headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+          });
+          var thumbData = JSON.parse(thumbResp.getContentText());
+          if (thumbData.thumbnailLink) {
+            imageDataUrl = thumbData.thumbnailLink.replace('=s220', '=s1600');
           } else {
             imageDataUrl = null;
           }

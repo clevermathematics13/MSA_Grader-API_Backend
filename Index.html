@@ -1244,7 +1244,8 @@
       function handleStudentOcrResult(result) {
         hideOcrProgress_();
         document.getElementById('test-student-ocr-btn').disabled = false;
-        
+
+        try {
         if (result.status === 'success') {
           currentStudentOcrData = result;
           
@@ -1408,6 +1409,10 @@
           log(`✅ OCR complete. Confidence: ${confidence}%`, confidence >= 85 ? 'success' : 'warn');
         } else {
           log(`❌ OCR failed: ${result.message}`, 'error');
+        }
+        } catch (uiErr) {
+          log(`❌ UI error in handleStudentOcrResult: ${uiErr.message}`, 'error');
+          console.error('handleStudentOcrResult error:', uiErr);
         }
       }
       

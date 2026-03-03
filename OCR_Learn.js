@@ -479,6 +479,13 @@ function loadLearnedCorrections_(opts) {
       if (pattern === replacement) continue;  // no-op
       if (!replacement && pattern.length < 5) continue;  // short deletion
 
+      // Block rules that modify LaTeX structural commands
+      if (/\\begin|\\end|\\frac|\\sqrt|\\left|\\right|\\array/.test(pattern)) continue;
+
+      // Block rules where pattern contains '=' (likely question-specific answers,
+      // e.g. "S_{15}=19" → "Max_{n}=13" would rewrite student work)
+      if (/=/.test(pattern) && /=/.test(replacement)) continue;
+
       rules.push({
         pattern: pattern,
         replacement: replacement,
