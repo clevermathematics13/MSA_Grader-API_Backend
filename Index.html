@@ -1252,16 +1252,33 @@
           .testStudentWorkOcr(fileId, { cropRegion: cropRegion });
       }
       
-      function handleStudentOcrResult(result) {
-        console.log('[MSA] handleStudentOcrResult FIRED, result=', result);
+      function handleStudentOcrResult(raw) {
+        console.log('[MSA] handleStudentOcrResult FIRED, raw type=' + typeof raw, raw && raw.substring ? raw.substring(0, 120) : raw);
         try {
           hideOcrProgress_();
           document.getElementById('test-student-ocr-btn').disabled = false;
 
-          if (!result) {
+          if (!raw) {
             log('⏱️ Server returned null — request may have timed out. Try again (cached OCR is faster on retry).', 'error');
             return;
           }
+
+          // Server now returns a JSON string to avoid google.script.run
+          // silently dropping complex nested objects.
+          var result;
+          if (typeof raw === 'string') {
+            try {
+              result = JSON.parse(raw);
+            } catch (parseErr) {
+              log('❌ Failed to parse server response: ' + parseErr.message, 'error');
+              console.error('Parse error, raw=', raw);
+              return;
+            }
+          } else {
+            result = raw;  // backward compat if object somehow comes through
+          }
+          console.log('[MSA] Parsed result, status=' + result.status);
+
           if (result.status === 'success') {
           currentStudentOcrData = result;
           

@@ -434,20 +434,20 @@ function testStudentWorkOcr(fileId, options = {}) {
       }
     };
 
-    try {
-      var payloadJson = JSON.stringify(returnPayload);
-      msaLog_('📍 Checkpoint: return payload built, JSON size=' + payloadJson.length + ' bytes (' + Math.round(payloadJson.length / 1024) + 'KB), elapsed ' + (Date.now() - t0) + 'ms');
-    } catch (serErr) {
-      msaLog_('⚠️ Return payload serialization failed: ' + serErr.message);
-    }
+    // ── Return as JSON STRING, not object ──
+    // google.script.run silently returns null when it can't serialize
+    // complex nested objects. Returning a string and JSON.parse on the
+    // client side is the reliable workaround.
+    var payloadJson = JSON.stringify(returnPayload);
+    msaLog_('📍 Checkpoint: return payload built, JSON size=' + payloadJson.length + ' bytes (' + Math.round(payloadJson.length / 1024) + 'KB), elapsed ' + (Date.now() - t0) + 'ms');
 
-    return returnPayload;
+    return payloadJson;
   } catch (e) {
     msaErr_(`Error in testStudentWorkOcr: ${e.message}`);
-    return {
+    return JSON.stringify({
       status: 'error',
       message: e.message
-    };
+    });
   }
 }
 
