@@ -1083,16 +1083,16 @@ function decodeQrFromImage(fileId) {
 
   try {
     var file = DriveApp.getFileById(fileId);
-    var blob = file.getBlob();
-    var blobBytes = blob.getBytes();
-    var blobSize = blobBytes.length;
-    msaLog_('QR decode: fileId=' + fileId + ', blob size=' + blobSize + ', contentType=' + blob.getContentType());
+    // Use file.getSize() instead of blob.getBytes().length to avoid reading
+    // the full blob into memory just for a size check (saves ~1s on 2.5MB images)
+    var fileSize = file.getSize();
+    msaLog_('QR decode: fileId=' + fileId + ', file size=' + fileSize + ', mimeType=' + file.getMimeType());
     
     // If image is larger than 500KB, get a smaller version for QR scanning
     // Large images overwhelm the free QR API (returns HTTP 400)
-    var sendBlob = blob;
-    if (blobSize > 500000) {
-      msaLog_('QR decode: Image too large (' + Math.round(blobSize/1024) + 'KB), getting thumbnail for QR scan...');
+    var sendBlob = null;
+    if (fileSize > 500000) {
+      msaLog_('QR decode: Image too large (' + Math.round(fileSize/1024) + 'KB), getting thumbnail for QR scan...');
       try {
         // Use Drive REST API v3 via UrlFetchApp (no advanced service needed)
         var token = ScriptApp.getOAuthToken();
@@ -1107,9 +1107,9 @@ function decodeQrFromImage(fileId) {
           msaLog_('QR decode: Got metadata, thumbnailLink=' + (meta.thumbnailLink ? 'yes' : 'no'));
           
           if (meta.thumbnailLink) {
-            // Try progressively larger thumbnails until QR is readable
-            // At 800px the QR code is too small (~30px); 1600-2000px should work
-            var sizes = ['s2000', 's1600', 's1200'];
+            // Try progressively smaller thumbnails until one fits under 1MB
+            // s2000 is almost always >1MB for large images, so start at s1600
+            var sizes = ['s1600', 's1200', 's800'];
             for (var si = 0; si < sizes.length; si++) {
               var thumbUrl = meta.thumbnailLink.replace('=s220', '=' + sizes[si]);
               msaLog_('QR decode: Trying thumbnail at ' + sizes[si] + '...');
@@ -1135,8 +1135,18 @@ function decodeQrFromImage(fileId) {
           msaLog_('QR decode: Drive metadata request returned HTTP ' + metaResp.getResponseCode());
         }
       } catch (thumbErr) {
-        msaLog_('QR decode: Thumbnail fallback failed: ' + thumbErr.message + ', using original');
+        msaLog_('QR decode: Thumbnail fallback failed: ' + thumbErr.message + ', using original blob');
       }
+    }
+    
+    // If no thumbnail was obtained (small image or all fallbacks failed), load the actual blob
+    if (!sendBlob) {
+      if (fileSize <= 500000) {
+        msaLog_('QR decode: Small image (' + Math.round(fileSize/1024) + 'KB), using original blob');
+      } else {
+        msaLog_('QR decode: All thumbnail attempts failed, falling back to original blob');
+      }
+      sendBlob = file.getBlob();
     }
     
     // Use free QR decoding API: api.qrserver.com
