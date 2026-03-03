@@ -1230,27 +1230,39 @@
         document.getElementById('test-student-ocr-btn').disabled = true;
         showOcrProgress_();
         
+        // Watchdog: if no response after 30s, show a timeout message
+        var ocrWatchdog_ = setTimeout(function() {
+          log('⏱️ No server response after 30 seconds. Server may still be processing — check Executions log. Try clicking Test again (cached OCR is faster).', 'warn');
+          hideOcrProgress_();
+          document.getElementById('test-student-ocr-btn').disabled = false;
+        }, 30000);
+
         google.script.run
-          .withSuccessHandler(handleStudentOcrResult)
-          .withFailureHandler(err => {
+          .withSuccessHandler(function(result) {
+            clearTimeout(ocrWatchdog_);
+            handleStudentOcrResult(result);
+          })
+          .withFailureHandler(function(err) {
+            clearTimeout(ocrWatchdog_);
+            console.error('[MSA] withFailureHandler FIRED:', err);
             hideOcrProgress_();
-            log(`❌ OCR test failed: ${err.message}`, 'error');
+            log('❌ OCR test failed: ' + (err.message || err), 'error');
             document.getElementById('test-student-ocr-btn').disabled = false;
-            alert(`Error: ${err.message}`);
           })
           .testStudentWorkOcr(fileId, { cropRegion: cropRegion });
       }
       
       function handleStudentOcrResult(result) {
-        hideOcrProgress_();
-        document.getElementById('test-student-ocr-btn').disabled = false;
-
+        console.log('[MSA] handleStudentOcrResult FIRED, result=', result);
         try {
-        if (!result) {
-          log('⏱️ Server returned null — request may have timed out. Try again (cached OCR is faster on retry).', 'error');
-          return;
-        }
-        if (result.status === 'success') {
+          hideOcrProgress_();
+          document.getElementById('test-student-ocr-btn').disabled = false;
+
+          if (!result) {
+            log('⏱️ Server returned null — request may have timed out. Try again (cached OCR is faster on retry).', 'error');
+            return;
+          }
+          if (result.status === 'success') {
           currentStudentOcrData = result;
           
           // Populate the modal - handle TIFF / large image preview
