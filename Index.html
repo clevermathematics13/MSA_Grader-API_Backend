@@ -59,6 +59,57 @@
       .zoom-toolbar .zoom-level { font-size: 12px; color: #666; min-width: 42px; text-align: center; }
       #student-ocr-textarea { width: 100%; flex: 1; font-family: 'Courier New', monospace; font-size: 13px; resize: none; }
       .ocr-meta { font-size: 12px; color: #666; margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 4px; }
+      .ocr-meta-row { margin-bottom: 3px; }
+
+      /* Expandable correction containers */
+      .correction-box {
+        margin: 4px 0;
+        border-radius: 5px;
+        overflow: hidden;
+        transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+      .correction-box .correction-header {
+        padding: 3px 6px;
+        border-radius: 5px;
+        cursor: default;
+        font-weight: 500;
+        transition: background-color 0.3s;
+      }
+      .correction-box.learned .correction-header { background: rgba(111, 66, 193, 0.08); }
+      .correction-box.student .correction-header { background: rgba(231, 76, 60, 0.08); }
+      .correction-box .correction-details {
+        max-height: 0;
+        opacity: 0;
+        overflow: hidden;
+        transition: max-height 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                    opacity 0.4s ease,
+                    padding 0.4s ease;
+        padding: 0 8px;
+      }
+      .correction-box.expanded .correction-details {
+        max-height: 500px;
+        opacity: 1;
+        padding: 4px 8px 6px;
+      }
+      .correction-rule {
+        display: block;
+        padding: 2px 0;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+        opacity: 0;
+        transform: translateX(-8px);
+        animation: ruleSlideIn 0.35s ease forwards;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .correction-rule .rule-arrow { color: #999; margin: 0 4px; }
+      .correction-rule .rule-pattern { color: #c0392b; }
+      .correction-rule .rule-replacement { color: #27ae60; }
+      .correction-rule .rule-count { color: #7f8c8d; font-size: 10px; margin-left: 4px; }
+      @keyframes ruleSlideIn {
+        to { opacity: 1; transform: translateX(0); }
+      }
       @keyframes ocrSavePulse {
         0%   { opacity: 1; transform: scale(1); }
         50%  { opacity: 0.6; transform: scale(1.15); }
@@ -699,13 +750,19 @@
               <div id="student-ocr-rendered" style="display: none; flex: 1; overflow: auto; border: 1px solid #ddd; border-radius: 4px; padding: 15px; background: white; font-size: 14px; line-height: 1.6;"></div>
               <div class="ocr-meta">
                 <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 4px;">📊 OCR Analysis</div>
-                <strong>Confidence:</strong> <span id="ocr-confidence" class="confidence-indicator">-</span><br>
-                <strong>Math Detected:</strong> <span id="ocr-math-detected">-</span><br>
-                <strong>Markers Detected:</strong> <span id="ocr-markers-detected" style="font-weight: 500;">-</span><br>
-                <strong>Crossed-Off Cleanup:</strong> <span id="ocr-crossed-off" style="font-weight: 500;">-</span><br>
-                <strong>Learned Corrections:</strong> <span id="ocr-learned" style="font-weight: 500;">-</span><br>
-                <strong>Student Profile:</strong> <span id="ocr-student-profile" style="font-weight: 500;">-</span><br>
-                <strong>Processing Time:</strong> <span id="ocr-processing-time">-</span>
+                <div class="ocr-meta-row"><strong>Confidence:</strong> <span id="ocr-confidence" class="confidence-indicator">-</span></div>
+                <div class="ocr-meta-row"><strong>Math Detected:</strong> <span id="ocr-math-detected">-</span></div>
+                <div class="ocr-meta-row"><strong>Markers Detected:</strong> <span id="ocr-markers-detected" style="font-weight: 500;">-</span></div>
+                <div class="ocr-meta-row"><strong>Crossed-Off Cleanup:</strong> <span id="ocr-crossed-off" style="font-weight: 500;">-</span></div>
+                <div class="correction-box learned" id="learned-correction-box">
+                  <div class="correction-header"><strong>Learned Corrections:</strong> <span id="ocr-learned" style="font-weight: 500;">-</span></div>
+                  <div class="correction-details" id="learned-correction-details"></div>
+                </div>
+                <div class="correction-box student" id="student-correction-box">
+                  <div class="correction-header"><strong>Student Profile:</strong> <span id="ocr-student-profile" style="font-weight: 500;">-</span></div>
+                  <div class="correction-details" id="student-correction-details"></div>
+                </div>
+                <div class="ocr-meta-row"><strong>Processing Time:</strong> <span id="ocr-processing-time">-</span></div>
               </div>
             </div>
           </div>
@@ -1058,6 +1115,13 @@
         debugPanelOpen_ = !debugPanelOpen_;
         document.getElementById('debug-panel').style.display = debugPanelOpen_ ? 'block' : 'none';
         document.getElementById('debug-toggle-icon').textContent = debugPanelOpen_ ? '▼ hide' : '▶ show';
+      }
+
+      /** Escape HTML special chars to prevent XSS when using innerHTML */
+      function escapeHtml_(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
       }
 
       function clearDebugLog() {
@@ -1496,16 +1560,39 @@
             crossedSpan.style.color = '#28a745';
           }
           
-          // Display learned corrections status
+          // Display learned corrections status with animated expansion
           const learnedSpan = document.getElementById('ocr-learned');
+          const learnedBox = document.getElementById('learned-correction-box');
+          const learnedDetails = document.getElementById('learned-correction-details');
+          learnedDetails.innerHTML = '';
+          learnedBox.classList.remove('expanded');
+
           if (result.learnedCorrections && result.learnedCorrections.stats.rulesApplied > 0) {
             var lc = result.learnedCorrections;
-            var lcParts = ['🧠 ' + lc.stats.totalReplacements + ' replacement(s) from ' + lc.stats.rulesApplied + ' rule(s)'];
-            learnedSpan.textContent = lcParts.join(', ');
+            learnedSpan.textContent = '🧠 ' + lc.stats.totalReplacements + ' replacement(s) from ' + lc.stats.rulesApplied + ' rule(s)';
             learnedSpan.style.color = '#6f42c1';
-            learnedSpan.title = lc.applied.map(function(a) {
-              return '"' + a.pattern + '" → "' + a.replacement + '" (×' + a.count + ', freq:' + a.frequency + ')';
-            }).join('\n');
+            learnedSpan.title = '';
+
+            // Build rule detail elements (hidden initially)
+            lc.applied.forEach(function(a) {
+              var rule = document.createElement('span');
+              rule.className = 'correction-rule';
+              rule.innerHTML = '<span class="rule-pattern">"' + escapeHtml_(a.pattern).substring(0, 30) + '"</span>'
+                + '<span class="rule-arrow">→</span>'
+                + '<span class="rule-replacement">"' + escapeHtml_(a.replacement || '').substring(0, 30) + '"</span>'
+                + '<span class="rule-count">×' + a.count + '</span>';
+              learnedDetails.appendChild(rule);
+            });
+
+            // Animate: expand the box and stagger the rules
+            setTimeout(function() {
+              learnedBox.classList.add('expanded');
+              var rules = learnedDetails.querySelectorAll('.correction-rule');
+              rules.forEach(function(el, i) {
+                el.style.animationDelay = (i * 120) + 'ms';
+              });
+            }, 300);
+
           } else if (result.learnedCorrections && result.learnedCorrections.stats.rulesLoaded > 0) {
             learnedSpan.textContent = result.learnedCorrections.stats.rulesLoaded + ' rules loaded, none matched';
             learnedSpan.style.color = '#6c757d';
@@ -1515,15 +1602,41 @@
             learnedSpan.title = 'Save corrected OCR to start teaching the system';
           }
           
-          // Display student profile status
+          // Display student profile status with animated expansion
           const profileSpan = document.getElementById('ocr-student-profile');
+          const studentBox = document.getElementById('student-correction-box');
+          const studentDetails = document.getElementById('student-correction-details');
+          studentDetails.innerHTML = '';
+          studentBox.classList.remove('expanded');
+
           if (result.studentProfile && result.studentProfile.stats.rulesApplied > 0) {
             var sp = result.studentProfile;
             profileSpan.textContent = '👤 ' + sp.stats.totalReplacements + ' fix(es) from ' + sp.stats.rulesApplied + ' personal rule(s)';
             profileSpan.style.color = '#e74c3c';
-            profileSpan.title = sp.applied.map(function(a) {
-              return '"' + a.pattern + '" \u2192 "' + a.replacement + '" (\u00d7' + a.count + ', freq:' + a.frequency + ', ' + a.strategy + ')';
-            }).join('\n');
+            profileSpan.title = '';
+
+            // Build rule detail elements
+            sp.applied.forEach(function(a) {
+              var rule = document.createElement('span');
+              rule.className = 'correction-rule';
+              rule.innerHTML = '<span class="rule-pattern">"' + escapeHtml_(a.pattern).substring(0, 30) + '"</span>'
+                + '<span class="rule-arrow">→</span>'
+                + '<span class="rule-replacement">"' + escapeHtml_(a.replacement || '').substring(0, 30) + '"</span>'
+                + '<span class="rule-count">×' + a.count + ' (' + (a.strategy || 'exact') + ')</span>';
+              studentDetails.appendChild(rule);
+            });
+
+            // Animate: expand the box with a delay after the learned box
+            var studentDelay = (result.learnedCorrections && result.learnedCorrections.stats.rulesApplied > 0)
+              ? 300 + (result.learnedCorrections.applied.length * 120) + 200
+              : 300;
+            setTimeout(function() {
+              studentBox.classList.add('expanded');
+              var rules = studentDetails.querySelectorAll('.correction-rule');
+              rules.forEach(function(el, i) {
+                el.style.animationDelay = (i * 120) + 'ms';
+              });
+            }, studentDelay);
           } else if (result.studentProfile && result.studentProfile.summary && result.studentProfile.summary.totalRules > 0) {
             var sum = result.studentProfile.summary;
             profileSpan.textContent = sum.totalRules + ' rule(s) for ' + sum.studentId + ', none matched';
