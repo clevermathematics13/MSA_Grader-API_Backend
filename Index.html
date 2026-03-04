@@ -613,9 +613,10 @@
 
     <!-- Server Debug Panel (live log stream) -->
     <div id="debug-container" style="padding: 15px; border: 1px solid #ccc; border-radius: 8px; margin-bottom: 15px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-      <h3 style="cursor: pointer; user-select: none; margin: 0;" onclick="toggleDebugPanel()">
-        🔧 Server Debug Log <span id="debug-toggle-icon" style="font-size: 12px; color: #999;">▶ show</span>
-        <span id="debug-badge" style="display: none; background: #667eea; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle;">0</span>
+      <h3 style="cursor: pointer; user-select: none; margin: 0; display: flex; align-items: center;">
+        <span onclick="toggleDebugPanel()" style="flex: 1;">🔧 Server Debug Log <span id="debug-toggle-icon" style="font-size: 12px; color: #999;">▶ show</span>
+        <span id="debug-badge" style="display: none; background: #667eea; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle;">0</span></span>
+        <button onclick="copyDebugLog(event)" title="Copy debug log to clipboard" style="padding: 4px 10px; font-size: 12px; background: #e9ecef; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer; font-weight: normal;">📋 Copy</button>
       </h3>
       <div id="debug-panel" style="display: none; margin-top: 10px;">
         <div id="debug-log" style="min-height: 60px; max-height: 400px; background-color: #1e1e2e; color: #cdd6f4; padding: 10px; border-radius: 5px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6;"></div>
@@ -1152,6 +1153,32 @@
         }
       }
 
+      /** Copy all debug log text to the clipboard. */
+      function copyDebugLog(evt) {
+        if (evt) evt.stopPropagation(); // don't toggle the panel
+        var el = document.getElementById('debug-log');
+        var text = '';
+        var entries = el.querySelectorAll('div');
+        entries.forEach(function(d) { text += d.textContent + '\n'; });
+        if (!text) { text = '(no log entries)'; }
+        navigator.clipboard.writeText(text).then(function() {
+          var btn = evt && evt.target;
+          if (btn) {
+            var orig = btn.textContent;
+            btn.textContent = '✅ Copied!';
+            setTimeout(function() { btn.textContent = orig; }, 1500);
+          }
+        }).catch(function() {
+          // Fallback for older browsers
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        });
+      }
+
       function triggerProcessing(questionTitle) {
         log(`Processing: ${questionTitle}...`);
         document.getElementById('process-doc-btn').disabled = true;
@@ -1413,18 +1440,13 @@
           if (result.status === 'success') {
           currentStudentOcrData = result;
           
-          // Populate the modal - handle TIFF / large image preview
+          // Populate the modal - show image preview
           const imgElement = document.getElementById('student-work-image');
           if (result.imageUrl) {
-            // Drive thumbnail URLs need crossorigin for Google auth cookies
-            if (result.imageUrl.startsWith('http')) {
-              imgElement.crossOrigin = 'use-credentials';
-            } else {
-              imgElement.removeAttribute('crossorigin');
-            }
+            imgElement.removeAttribute('crossorigin');
             imgElement.src = result.imageUrl;
             imgElement.style.display = 'block';
-            imgElement.alt = (result.isTiff ? 'TIFF preview' : 'Student work') + (result.imageUrl.startsWith('http') ? ' (thumbnail)' : '');
+            imgElement.alt = result.isTiff ? 'TIFF preview (thumbnail)' : 'Student work';
           } else {
             imgElement.style.display = 'none';
             imgElement.parentElement.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">⚠️ TIFF preview unavailable<br><small>OCR was performed on original TIFF file</small></div><img id="student-work-image" style="display:none;">';

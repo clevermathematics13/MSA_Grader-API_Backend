@@ -167,8 +167,16 @@ function testStudentWorkOcr(fileId, options = {}) {
     setLogSession_(options.logSessionId);
   }
   try {
+    msaLog_('═══════════════════════════════════════════');
+    msaLog_('▶ STUDENT WORK OCR PIPELINE — starting');
+    msaLog_('  Pipeline: Image → Mathpix OCR → QR Decode → Crop → Clean → Corrections → Package');
+    msaLog_('  fileId: ' + fileId);
+    msaLog_('═══════════════════════════════════════════');
+
     const file = DriveApp.getFileById(fileId);
     const mimeType = file.getMimeType();
+    const fileName = file.getName();
+    msaLog_('📂 [1/7 FETCH] File: "' + fileName + '" (' + mimeType + ', ' + Math.round(file.getSize() / 1024) + 'KB)');
     
     // Verify it's an image
     if (!mimeType.startsWith('image/')) {
@@ -188,6 +196,11 @@ function testStudentWorkOcr(fileId, options = {}) {
     let detectedExamName = options.examName || null;
     let detectedPosition = options.position || null;
     
+    msaLog_('───────────────────────────────────────────');
+    msaLog_('🔬 [2/7 OCR] Calling Mathpix OCR on original image (include_line_data + geometry)');
+    msaLog_('  Mathpix returns: LaTeX text, line coordinates, confidence, image dimensions');
+    msaLog_('  Results are cached in CacheService (6h TTL) — cache HIT skips the ~9s API call');
+
     // Always run full OCR first to get all content and marker positions
     const fullOcrResult = msaMathpixOcrFromDriveImage_(fileId, cfg, { 
       include_line_data: true,
@@ -197,10 +210,14 @@ function testStudentWorkOcr(fileId, options = {}) {
     ocrResult = fullOcrResult;
     const imageWidth = fullOcrResult.image_width || 1000;
     const imageHeight = fullOcrResult.image_height || 1000;
+    msaLog_('  → Image: ' + imageWidth + '×' + imageHeight + 'px, ' + (fullOcrResult.line_data || []).length + ' text lines detected');
     
     // AUTO-DETECT: If no question code provided, try to read it from the QR code
     if (!detectedQuestionCode) {
-      msaLog_('No question code provided, attempting QR detection...');
+      msaLog_('───────────────────────────────────────────');
+      msaLog_('📱 [3/7 QR] No question code provided — scanning image for QR code');
+      msaLog_('  QR encodes: {s: studentId, q: questionCode, e: examName}');
+      msaLog_('  Results cached in CacheService (6h TTL) — cache HIT skips ~5s decode');
       var qrData = decodeQrFromImage(fileId);
       if (qrData) {
         // Accept both questionCode and q
@@ -226,6 +243,10 @@ function testStudentWorkOcr(fileId, options = {}) {
       msaLog_('Auto-detected position: ' + detectedPosition);
     }
     
+    msaLog_('───────────────────────────────────────────');
+    msaLog_('✂️ [4/7 CROP] Isolating answer region from full page');
+    msaLog_('  Strategy cascade: Stored coords → Corner markers → Manual crop → Full page');
+
     // OPTION 1: Try to look up stored box coordinates by question code
     if (detectedQuestionCode) {
       const storedCoords = lookupBoxCoordinates(detectedQuestionCode, detectedPosition);
@@ -277,6 +298,12 @@ function testStudentWorkOcr(fileId, options = {}) {
       msaLog_('Using full image - no crop applied');
     }
     
+    msaLog_('───────────────────────────────────────────');
+    msaLog_('🧹 [5/7 CLEAN] Post-processing OCR text');
+    msaLog_('  Step A: Crossed-off detection (CJK \\text{} blocks from scribbles)');
+    msaLog_('  Step B: Global learned corrections (OCR_Learn.js → corrections spreadsheet)');
+    msaLog_('  Step C: Per-student corrections (StudentOCR_Profile.js → student patterns)');
+
     // ── Crossed-off detection ──
     var crossedOffResult = flagCrossedOffLines_(ocrResult);
 
@@ -315,28 +342,53 @@ function testStudentWorkOcr(fileId, options = {}) {
       }
     }
 
-    msaLog_('📍 Checkpoint: corrections done, elapsed ' + (Date.now() - t0) + 'ms');
+    msaLog_('───────────────────────────────────────────');
+    msaLog_('📊 [5/7 CLEAN] Corrections summary:');
+    msaLog_('  Crossed-off: ' + (crossedOffResult.stats ? crossedOffResult.stats.cjkTextBlocks || 0 : 0) + ' CJK block(s) stripped');
+    msaLog_('  Global rules: ' + learnedResult.stats.rulesLoaded + ' loaded, ' + learnedResult.stats.rulesApplied + ' applied (' + learnedResult.stats.totalReplacements + ' replacements)');
+    msaLog_('  Student rules: ' + studentProfileResult.stats.rulesLoaded + ' loaded, ' + studentProfileResult.stats.rulesApplied + ' applied (' + studentProfileResult.stats.totalReplacements + ' replacements)');
+    msaLog_('📍 Elapsed: ' + (Date.now() - t0) + 'ms');
 
     const processingTime = Date.now() - t0;
     
-    // For preview, handle TIFF files specially since browsers don't support them
+    msaLog_('───────────────────────────────────────────');
+    msaLog_('📸 [6/7 IMAGE] Preparing image preview for browser');
+    msaLog_('  Large images (>500KB): fetch Drive thumbnail at s800, encode as base64');
+    msaLog_('  Small images: encode original as base64 data URL');
+
+    // For preview, handle TIFF files specially since browsers don\'t support them
     let imageDataUrl;
     
     if (mimeType === 'image/tiff' || mimeType === 'image/tif') {
-      // TIFF files: Use UrlFetchApp to get Drive API thumbnail
+      // TIFF files: Browsers can't display TIFF natively. Fetch a Drive
+      // thumbnail as base64 so the client gets a viewable PNG preview.
+      msaLog_('📸 [Image] TIFF detected — fetching Drive thumbnail as base64 for browser preview…');
       try {
+        var token = ScriptApp.getOAuthToken();
         var thumbUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
         var thumbResp = UrlFetchApp.fetch(thumbUrl, {
-          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+          headers: { Authorization: 'Bearer ' + token }
         });
         var thumbData = JSON.parse(thumbResp.getContentText());
         if (thumbData.thumbnailLink) {
-          imageDataUrl = thumbData.thumbnailLink.replace('=s220', '=s800');
+          var fetchUrl = thumbData.thumbnailLink.replace('=s220', '=s800');
+          var blobResp = UrlFetchApp.fetch(fetchUrl, {
+            headers: { Authorization: 'Bearer ' + token },
+            muteHttpExceptions: true
+          });
+          if (blobResp.getResponseCode() === 200) {
+            var tBytes = blobResp.getContent();
+            var tMime = blobResp.getHeaders()['Content-Type'] || 'image/png';
+            imageDataUrl = 'data:' + tMime + ';base64,' + Utilities.base64Encode(tBytes);
+            msaLog_('📸 [Image] TIFF thumbnail OK (' + Math.round(tBytes.length / 1024) + 'KB)');
+          } else {
+            imageDataUrl = null;
+          }
         } else {
           imageDataUrl = null;
         }
       } catch (e) {
-        msaLog_('Could not get thumbnail for TIFF: ' + e.message);
+        msaLog_('📸 [Image] TIFF thumbnail failed: ' + e.message);
         imageDataUrl = null;
       }
     } else {
@@ -347,20 +399,39 @@ function testStudentWorkOcr(fileId, options = {}) {
       var fileSizeKB = Math.round(file.getSize() / 1024);
 
       if (fileSizeKB > 500) {
-        msaLog_('Image too large for base64 (' + fileSizeKB + 'KB), using Drive thumbnail URL');
+        msaLog_('📸 [Image] Original too large for base64 (' + fileSizeKB + 'KB). Fetching server-side thumbnail at s800 for browser preview…');
         try {
-          var thumbUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
-          var thumbResp = UrlFetchApp.fetch(thumbUrl, {
-            headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+          var token = ScriptApp.getOAuthToken();
+          var metaUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
+          var metaResp = UrlFetchApp.fetch(metaUrl, {
+            headers: { Authorization: 'Bearer ' + token }
           });
-          var thumbData = JSON.parse(thumbResp.getContentText());
-          if (thumbData.thumbnailLink) {
-            imageDataUrl = thumbData.thumbnailLink.replace('=s220', '=s1600');
+          var metaData = JSON.parse(metaResp.getContentText());
+          if (metaData.thumbnailLink) {
+            // Fetch the actual thumbnail bytes so we can return base64.
+            // The raw thumbnailLink URL requires Google auth cookies that
+            // the browser doesn't have in the Apps Script web app context.
+            var thumbFetchUrl = metaData.thumbnailLink.replace('=s220', '=s800');
+            var thumbBlobResp = UrlFetchApp.fetch(thumbFetchUrl, {
+              headers: { Authorization: 'Bearer ' + token },
+              muteHttpExceptions: true
+            });
+            if (thumbBlobResp.getResponseCode() === 200) {
+              var thumbBytes = thumbBlobResp.getContent();
+              var thumbB64 = Utilities.base64Encode(thumbBytes);
+              var thumbMime = thumbBlobResp.getHeaders()['Content-Type'] || 'image/png';
+              imageDataUrl = 'data:' + thumbMime + ';base64,' + thumbB64;
+              msaLog_('📸 [Image] Thumbnail fetched OK (' + Math.round(thumbBytes.length / 1024) + 'KB → ' + Math.round(thumbB64.length / 1024) + 'KB base64)');
+            } else {
+              msaLog_('📸 [Image] Thumbnail fetch returned HTTP ' + thumbBlobResp.getResponseCode());
+              imageDataUrl = null;
+            }
           } else {
+            msaLog_('📸 [Image] No thumbnailLink in Drive metadata');
             imageDataUrl = null;
           }
         } catch (thumbErr) {
-          msaLog_('Thumbnail fallback failed: ' + thumbErr.message);
+          msaLog_('📸 [Image] Thumbnail fallback failed: ' + thumbErr.message);
           imageDataUrl = null;
         }
       } else {
@@ -369,7 +440,10 @@ function testStudentWorkOcr(fileId, options = {}) {
       }
     }
     
-    msaLog_('📍 Checkpoint: image encoded, imageDataUrl length=' + (imageDataUrl ? imageDataUrl.length : 'null') + ', elapsed ' + (Date.now() - t0) + 'ms');
+    msaLog_('� [6/7 IMAGE] Preview ready: ' + (imageDataUrl ? (imageDataUrl.startsWith('data:') ? Math.round(imageDataUrl.length / 1024) + 'KB base64' : 'URL') : 'unavailable') + ', elapsed ' + (Date.now() - t0) + 'ms');
+
+    msaLog_('───────────────────────────────────────────');
+    msaLog_('📦 [7/7 PACKAGE] Building return payload');
 
     // Calculate confidence from OCR result
     // Mathpix confidence is often very low for handwritten content (like 0.02)
@@ -377,13 +451,8 @@ function testStudentWorkOcr(fileId, options = {}) {
     // We'll use a composite confidence based on multiple factors
     let rawConfidence = ocrResult.confidence || 0;
     let confidence = calculateCompositeConfidence_(ocrResult, rawConfidence);
-    
-    // Debug: Log confidence details
-    msaLog_('Mathpix raw confidence: ' + (rawConfidence * 100).toFixed(1) + '%');
-    msaLog_('Composite confidence: ' + (confidence * 100).toFixed(1) + '%');
-    msaLog_('OCR Result keys: ' + Object.keys(ocrResult).join(', '));
-    msaLog_('OCR text length: ' + (ocrResult.text || '').length);
-    msaLog_('OCR text preview: ' + (ocrResult.text || '').substring(0, 100));
+    msaLog_('  Mathpix raw confidence: ' + (rawConfidence * 100).toFixed(1) + '% → Composite: ' + (confidence * 100).toFixed(1) + '%');
+    msaLog_('  OCR text: ' + (ocrResult.text || '').length + ' chars, ' + ((ocrResult.text || '').includes('\\') ? 'math detected' : 'no math'));
     
     // Check for Mathpix errors
     if (ocrResult.error) {
@@ -443,7 +512,12 @@ function testStudentWorkOcr(fileId, options = {}) {
     // complex nested objects. Returning a string and JSON.parse on the
     // client side is the reliable workaround.
     var payloadJson = JSON.stringify(returnPayload);
-    msaLog_('📍 Checkpoint: return payload built, JSON size=' + payloadJson.length + ' bytes (' + Math.round(payloadJson.length / 1024) + 'KB), elapsed ' + (Date.now() - t0) + 'ms');
+    msaLog_('═══════════════════════════════════════════');
+    msaLog_('✅ PIPELINE COMPLETE in ' + (Date.now() - t0) + 'ms');
+    msaLog_('  Payload: ' + Math.round(payloadJson.length / 1024) + 'KB JSON string');
+    msaLog_('  Question: ' + (detectedQuestionCode || '(unknown)') + ' | Student: ' + (detectedStudentId || '(unknown)') + ' | Position: ' + (detectedPosition || '(unknown)'));
+    msaLog_('  Image: ' + (imageDataUrl ? (imageDataUrl.length > 200 ? Math.round(imageDataUrl.length / 1024) + 'KB base64' : 'URL') : 'none') + ' | Cropped: ' + (markersDetected ? 'yes' : 'no'));
+    msaLog_('═══════════════════════════════════════════');
 
     return payloadJson;
   } catch (e) {
