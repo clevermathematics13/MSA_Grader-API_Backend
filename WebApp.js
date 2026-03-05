@@ -1267,7 +1267,7 @@ function decodeQrFromImage(fileId) {
       sendBlob = file.getBlob();
     }
     
-    // Call QR API
+    // Call QR API — try with current blob first, then fall back to original if thumbnail failed
     var tApi = Date.now();
     var response = UrlFetchApp.fetch('https://api.qrserver.com/v1/read-qr-code/', {
       method: 'post',
@@ -1277,6 +1277,37 @@ function decodeQrFromImage(fileId) {
     var responseCode = response.getResponseCode();
     var responseText = response.getContentText();
     msaLog_('  [QR.api] HTTP' + responseCode + ' body=' + responseText.length + 'B Δ' + (Date.now() - tApi) + 'ms');
+    
+    // Check if the API found a QR code — if not and we used a thumbnail, retry with original
+    var apiFoundQR = false;
+    if (responseCode === 200) {
+      try {
+        var quickCheck = JSON.parse(responseText);
+        if (quickCheck && quickCheck[0] && quickCheck[0].symbol && quickCheck[0].symbol[0] &&
+            quickCheck[0].symbol[0].data && !quickCheck[0].symbol[0].error) {
+          apiFoundQR = true;
+        }
+      } catch(qe) {}
+    }
+    
+    if (!apiFoundQR && sendBlob !== file.getBlob() && fileSize <= 10000000) {
+      // Thumbnail didn't yield a QR — retry with full-resolution original (up to 10MB)
+      msaLog_('  [QR.retry] thumbnail had no QR → retrying with original blob (' + Math.round(fileSize / 1024) + 'KB)');
+      var tRetry = Date.now();
+      var origBlob = file.getBlob();
+      var retryResp = UrlFetchApp.fetch('https://api.qrserver.com/v1/read-qr-code/', {
+        method: 'post',
+        payload: { file: origBlob },
+        muteHttpExceptions: true
+      });
+      if (retryResp.getResponseCode() === 200) {
+        responseCode = retryResp.getResponseCode();
+        responseText = retryResp.getContentText();
+        msaLog_('  [QR.retry] HTTP' + responseCode + ' body=' + responseText.length + 'B Δ' + (Date.now() - tRetry) + 'ms');
+      } else {
+        msaLog_('  [QR.retry] HTTP' + retryResp.getResponseCode() + ' — keeping thumbnail result Δ' + (Date.now() - tRetry) + 'ms');
+      }
+    }
     
     if (responseCode !== 200) {
       msaLog_('  [QR.api] non-200, aborting. resp=' + responseText.substring(0, 200));
