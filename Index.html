@@ -1602,6 +1602,18 @@
         if (fileId !== rawInput.trim()) {
           log('ℹ️ Extracted file ID: ' + fileId + '  (from URL)', 'info');
         }
+
+        // Optional: question code for box-coordinate crop lookup
+        var questionCode = prompt(
+          "(Optional) Enter the question code for answer-box cropping:\n\n" +
+          "Examples: 22M.1.SL.TZ1.1, 23N.2.HL.TZ0.5\n" +
+          "Leave blank to auto-detect from OCR or skip cropping.",
+          ""
+        );
+        questionCode = (questionCode || '').trim() || null;
+        if (questionCode) {
+          log('ℹ️ Question code: ' + questionCode, 'info');
+        }
         
         let cropRegion = null;
         
@@ -1636,7 +1648,7 @@
             log('❌ OCR test failed: ' + (err.message || err), 'error');
             document.getElementById('test-student-ocr-btn').disabled = false;
           })
-          .testStudentWorkOcr(fileId, { cropRegion: cropRegion, logSessionId: sessionId });
+          .testStudentWorkOcr(fileId, { cropRegion: cropRegion, logSessionId: sessionId, questionCode: questionCode });
       }
       
       function handleStudentOcrResult(raw) {

@@ -260,6 +260,19 @@ function testStudentWorkOcr(fileId, options = {}) {
       msaLog_('[3/7 QR] SKIP — qCode already set: ' + detectedQuestionCode + ' Δ0ms');
     }
     
+    // AUTO-DETECT: question number from OCR text when QR gave us nothing
+    if (!detectedQuestionCode) {
+      var ocrTextForDetect = (fullOcrResult.text || '');
+      // Look for "N. [Maximum mark: M]" pattern typical of IB exam pages
+      var qNumMatch = ocrTextForDetect.match(/(\d{1,2})\.\s*\[(?:Mm)aximum\s+mark[:\s]+(\d+)\]/);
+      if (qNumMatch) {
+        msaLog_('[3/7 QR] OCR-detect: found questionNum=' + qNumMatch[1] + ' maxMark=' + qNumMatch[2] + ' — but no full question code (e.g. 22M.1.SL.TZ1.' + qNumMatch[1] + ')');
+        // We know the question number but not the full code (paper, TZ, etc.)
+        // Store as partial for logging but can't look up box coords without full code
+      }
+      msaLog_('[3/7 QR] detectedQuestionCode remains null — crop will fall through to markers or full image');
+    }
+    
     // AUTO-DETECT: position (Q1 vs Q2+)
     if (!detectedPosition) {
       var isQ1 = detectIfQ1FromOcr(fullOcrResult);
