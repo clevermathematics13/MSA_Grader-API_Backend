@@ -178,8 +178,25 @@ function testStudentWorkOcr(fileId, options = {}) {
 
     // ─── PHASE 1: FETCH ───
     tPhase = Date.now();
-    msaLog_('[1/7 FETCH] DriveApp.getFileById(' + fileId + ')');
-    const file = DriveApp.getFileById(fileId);
+    // Validate file ID format before hitting Drive API
+    if (!fileId || typeof fileId !== 'string' || !/^[a-zA-Z0-9_-]{10,}$/.test(fileId.trim())) {
+      throw new Error('Invalid file ID format: "' + fileId + '". Expected a Google Drive file ID (alphanumeric, 10+ chars). If you pasted a URL, the client should have extracted the ID automatically.');
+    }
+    fileId = fileId.trim();
+    msaLog_('[1/7 FETCH] DriveApp.getFileById(' + fileId + ') len=' + fileId.length);
+    var file;
+    try {
+      file = DriveApp.getFileById(fileId);
+    } catch (driveErr) {
+      msaErr_('[1/7 FETCH] FAIL Δ' + (Date.now() - tPhase) + 'ms — ' + driveErr.message);
+      throw new Error(
+        'Cannot access file "' + fileId + '". ' +
+        'Verify: (1) the file exists in Google Drive, ' +
+        '(2) it is shared with or owned by the script owner, ' +
+        '(3) it has not been trashed. ' +
+        'Original error: ' + driveErr.message
+      );
+    }
     const mimeType = file.getMimeType();
     const fileName = file.getName();
     var fileSizeBytes = file.getSize();

@@ -1563,9 +1563,45 @@
         }, 600);
       }
       
+      /**
+       * Extract a Drive file ID from various input formats:
+       *  - Plain ID:  1aBcD_eFgHiJ
+       *  - Full URL:  https://drive.google.com/file/d/1aBcD_eFgHiJ/view
+       *  - Open URL:  https://drive.google.com/open?id=1aBcD_eFgHiJ
+       *  - Thumbnail: https://drive.google.com/thumbnail?id=1aBcD_eFgHiJ
+       */
+      function extractDriveFileId_(input) {
+        if (!input) return null;
+        var s = input.trim();
+        // /d/FILE_ID/ pattern (file, document, spreadsheets, presentation)
+        var m = s.match(/\/d\/([a-zA-Z0-9_-]{10,})/); 
+        if (m) return m[1];
+        // ?id=FILE_ID pattern (open, thumbnail, uc)
+        m = s.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+        if (m) return m[1];
+        // If it looks like a bare ID (alphanumeric, hyphens, underscores, 10+ chars)
+        if (/^[a-zA-Z0-9_-]{10,}$/.test(s)) return s;
+        return null;
+      }
+
       async function testStudentOcr() {
-        const fileId = prompt("Enter the Google Drive File ID of a student work image:", "");
-        if (!fileId) return;
+        const rawInput = prompt(
+          "Paste a Google Drive file ID or URL of a student work image:\n\n" +
+          "Accepted formats:\n" +
+          "• File ID: 1aBcDeFgHiJkLmNoPqRsTuVwXyZ\n" +
+          "• URL: https://drive.google.com/file/d/.../view",
+          ""
+        );
+        if (!rawInput) return;
+
+        var fileId = extractDriveFileId_(rawInput);
+        if (!fileId) {
+          log('❌ Could not extract a valid file ID from: ' + rawInput, 'error');
+          return;
+        }
+        if (fileId !== rawInput.trim()) {
+          log('ℹ️ Extracted file ID: ' + fileId + '  (from URL)', 'info');
+        }
         
         let cropRegion = null;
         
