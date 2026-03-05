@@ -242,6 +242,7 @@ function testStudentWorkOcr(fileId, options = {}) {
     if (!detectedQuestionCode) {
       msaLog_('[3/7 QR] No qCode supplied — scanning for QR. decodeQrFromImage(' + fileId + ')');
       var qrData = decodeQrFromImage(fileId);
+      msaLog_('[3/7 QR] raw return=' + JSON.stringify(qrData).substring(0, 300));
       if (qrData) {
         if (qrData.questionCode) {
           detectedQuestionCode = qrData.questionCode;
@@ -251,8 +252,9 @@ function testStudentWorkOcr(fileId, options = {}) {
         detectedStudentId = qrData.studentId || qrData.s || detectedStudentId;
         detectedExamName = qrData.examName || qrData.e || detectedExamName;
         msaLog_('[3/7 QR] DECODED qCode=' + (detectedQuestionCode || 'null') + ' sId=' + (detectedStudentId || 'null') + ' exam=' + (detectedExamName || 'null') + ' Δ' + (Date.now() - tPhase) + 'ms');
+        if (qrData.raw) msaLog_('[3/7 QR] raw QR payload=' + JSON.stringify(qrData.raw).substring(0, 300));
       } else {
-        msaLog_('[3/7 QR] NO QR found Δ' + (Date.now() - tPhase) + 'ms');
+        msaLog_('[3/7 QR] NO QR found — API returned null. Image may not contain a readable QR code. Δ' + (Date.now() - tPhase) + 'ms');
       }
     } else {
       msaLog_('[3/7 QR] SKIP — qCode already set: ' + detectedQuestionCode + ' Δ0ms');
@@ -1278,9 +1280,11 @@ function decodeQrFromImage(fileId) {
       return null;
     }
     
+    msaLog_('  [QR.response] symbols=' + (result && result[0] && result[0].symbol ? result[0].symbol.length : 0) + ' full=' + responseText.substring(0, 500));
     if (result && result[0] && result[0].symbol && result[0].symbol[0]) {
       var qrContent = result[0].symbol[0].data;
       var qrError = result[0].symbol[0].error;
+      msaLog_('  [QR.symbol] data=' + (qrContent ? qrContent.substring(0, 200) : 'null') + ' error=' + (qrError || 'none'));
       
       if (qrError) {
         msaLog_('  [QR.decode] symbol error: ' + qrError);
@@ -1289,7 +1293,7 @@ function decodeQrFromImage(fileId) {
       }
       
       if (qrContent) {
-        msaLog_('  [QR.decode] raw=' + qrContent.substring(0, 120));
+        msaLog_('  [QR.decode] raw=' + qrContent.substring(0, 200));
         try {
           var qrData = JSON.parse(qrContent);
           var qrResult = {
