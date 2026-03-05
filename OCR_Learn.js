@@ -523,8 +523,10 @@ function loadLearnedCorrections_(opts) {
 function applyLearnedCorrections_(ocrText, opts) {
   if (!ocrText) return { text: ocrText, applied: [], stats: { rulesLoaded: 0, rulesApplied: 0, totalReplacements: 0 } };
 
+  var t0 = Date.now();
   opts = opts || {};
   var rules = loadLearnedCorrections_(opts);
+  msaLog_('  [CLEAN.learned] loaded ' + rules.length + ' rules (minFreq=' + (opts.minFrequency || 2) + ') Δ' + (Date.now() - t0) + 'ms');
 
   if (rules.length === 0) {
     return {
@@ -564,9 +566,7 @@ function applyLearnedCorrections_(ocrText, opts) {
     }
   }
 
-  if (applied.length > 0) {
-    msaLog_('Applied ' + applied.length + ' learned rules (' + totalReplacements + ' replacements)');
-  }
+  msaLog_('  [CLEAN.learned] DONE applied=' + applied.length + '/' + rules.length + ' replacements=' + totalReplacements + ' chars=' + ocrText.length + '→' + correctedText.length + ' Δ' + (Date.now() - t0) + 'ms');
 
   return {
     text: correctedText,

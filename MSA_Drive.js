@@ -74,6 +74,10 @@ function msaEnsureFolderPath_(parentFolder, pathParts) {
 
 /** @type {string|null} Active log-session key (null = no streaming) */
 var currentLogSessionKey_ = null;
+/** @type {number} Auto-incrementing sequence counter for dedup */
+var logSeq_ = 0;
+/** @type {number} Epoch ms when setLogSession_ was called (for relative timing) */
+var logT0_ = 0;
 
 /**
  * Create a new server-side log session. Returns the session ID.
@@ -93,10 +97,14 @@ function startLogSession() {
  */
 function setLogSession_(sessionId) {
   currentLogSessionKey_ = sessionId ? ('slog_' + sessionId) : null;
+  logSeq_ = 0;
+  logT0_ = Date.now();
 }
 
 /**
  * Append a single message to the CacheService log buffer.
+ * Each entry gets an auto-incrementing `seq` for client-side dedup
+ * and a `dt` (ms since session start) for precise timing.
  * Keeps only the last 200 entries and stays under 100 KB.
  */
 function appendToLogSession_(level, msg) {
@@ -106,6 +114,8 @@ function appendToLogSession_(level, msg) {
     var raw = cache.get(currentLogSessionKey_);
     var arr = raw ? JSON.parse(raw) : [];
     arr.push({
+      seq: logSeq_++,
+      dt: Date.now() - logT0_,
       t: new Date().toLocaleTimeString(),
       l: level,
       m: String(msg)

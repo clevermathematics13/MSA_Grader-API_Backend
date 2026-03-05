@@ -166,26 +166,30 @@ function testStudentWorkOcr(fileId, options = {}) {
   if (options.logSessionId) {
     setLogSession_(options.logSessionId);
   }
+  var T = Date.now(); // pipeline epoch
+  var tPhase;         // per-phase timer
   try {
     msaLog_('═══════════════════════════════════════════');
     msaLog_('▶ STUDENT WORK OCR PIPELINE — starting');
-    msaLog_('  Pipeline: Image → Mathpix OCR → QR Decode → Crop → Clean → Corrections → Package');
+    msaLog_('  stages: FETCH→OCR→QR→CROP→CLEAN→IMAGE→PACKAGE');
     msaLog_('  fileId: ' + fileId);
+    msaLog_('  opts: qCode=' + (options.questionCode || 'null') + ' sId=' + (options.studentId || 'null') + ' pos=' + (options.position || 'null') + ' markers=' + (options.detectMarkers !== false) + ' crop=' + (options.cropRegion ? 'manual' : 'null'));
     msaLog_('═══════════════════════════════════════════');
 
+    // ─── PHASE 1: FETCH ───
+    tPhase = Date.now();
+    msaLog_('[1/7 FETCH] DriveApp.getFileById(' + fileId + ')');
     const file = DriveApp.getFileById(fileId);
     const mimeType = file.getMimeType();
     const fileName = file.getName();
-    msaLog_('📂 [1/7 FETCH] File: "' + fileName + '" (' + mimeType + ', ' + Math.round(file.getSize() / 1024) + 'KB)');
+    var fileSizeBytes = file.getSize();
+    msaLog_('[1/7 FETCH] OK name="' + fileName + '" mime=' + mimeType + ' size=' + fileSizeBytes + 'B (' + Math.round(fileSizeBytes / 1024) + 'KB) Δ' + (Date.now() - tPhase) + 'ms');
     
     // Verify it's an image
     if (!mimeType.startsWith('image/')) {
-      throw new Error('File must be an image. PDF support coming soon.');
+      throw new Error('File must be an image (got ' + mimeType + '). PDF support coming soon.');
     }
     
-    const t0 = Date.now();
-    
-    // Use the Mathpix OCR function on the ORIGINAL file (TIFF, PNG, JPG, etc.)
     const cfg = msaGetConfig_();
     
     let cropInfo = null;
@@ -196,12 +200,11 @@ function testStudentWorkOcr(fileId, options = {}) {
     let detectedExamName = options.examName || null;
     let detectedPosition = options.position || null;
     
+    // ─── PHASE 2: OCR ───
+    tPhase = Date.now();
     msaLog_('───────────────────────────────────────────');
-    msaLog_('🔬 [2/7 OCR] Calling Mathpix OCR on original image (include_line_data + geometry)');
-    msaLog_('  Mathpix returns: LaTeX text, line coordinates, confidence, image dimensions');
-    msaLog_('  Results are cached in CacheService (6h TTL) — cache HIT skips the ~9s API call');
+    msaLog_('[2/7 OCR] msaMathpixOcrFromDriveImage_ fileId=' + fileId + ' opts={line_data:true,geometry:true}');
 
-    // Always run full OCR first to get all content and marker positions
     const fullOcrResult = msaMathpixOcrFromDriveImage_(fileId, cfg, { 
       include_line_data: true,
       include_geometry: true 
@@ -210,48 +213,52 @@ function testStudentWorkOcr(fileId, options = {}) {
     ocrResult = fullOcrResult;
     const imageWidth = fullOcrResult.image_width || 1000;
     const imageHeight = fullOcrResult.image_height || 1000;
-    msaLog_('  → Image: ' + imageWidth + '×' + imageHeight + 'px, ' + (fullOcrResult.line_data || []).length + ' text lines detected');
+    var ocrTextLen = (fullOcrResult.text || '').length;
+    var ocrLineCount = (fullOcrResult.line_data || []).length;
+    var ocrConfRaw = fullOcrResult.confidence || 0;
+    var hasMathChars = (fullOcrResult.text || '').includes('\\');
+    msaLog_('[2/7 OCR] DONE img=' + imageWidth + '×' + imageHeight + 'px lines=' + ocrLineCount + ' chars=' + ocrTextLen + ' conf=' + (ocrConfRaw * 100).toFixed(1) + '% math=' + hasMathChars + ' err=' + (fullOcrResult.error || 'none') + ' Δ' + (Date.now() - tPhase) + 'ms');
     
-    // AUTO-DETECT: If no question code provided, try to read it from the QR code
+    // ─── PHASE 3: QR ───
+    tPhase = Date.now();
+    msaLog_('───────────────────────────────────────────');
     if (!detectedQuestionCode) {
-      msaLog_('───────────────────────────────────────────');
-      msaLog_('📱 [3/7 QR] No question code provided — scanning image for QR code');
-      msaLog_('  QR encodes: {s: studentId, q: questionCode, e: examName}');
-      msaLog_('  Results cached in CacheService (6h TTL) — cache HIT skips ~5s decode');
+      msaLog_('[3/7 QR] No qCode supplied — scanning for QR. decodeQrFromImage(' + fileId + ')');
       var qrData = decodeQrFromImage(fileId);
       if (qrData) {
-        // Accept both questionCode and q
         if (qrData.questionCode) {
           detectedQuestionCode = qrData.questionCode;
-          msaLog_('Detected question code from QR (questionCode): ' + detectedQuestionCode);
         } else if (qrData.q) {
           detectedQuestionCode = qrData.q;
-          msaLog_('Detected question code from QR (q): ' + detectedQuestionCode);
         }
-        // Capture student ID and exam name from QR
         detectedStudentId = qrData.studentId || qrData.s || detectedStudentId;
         detectedExamName = qrData.examName || qrData.e || detectedExamName;
-        if (detectedStudentId) msaLog_('Detected student ID from QR: ' + detectedStudentId);
-        if (detectedExamName) msaLog_('Detected exam name from QR: ' + detectedExamName);
+        msaLog_('[3/7 QR] DECODED qCode=' + (detectedQuestionCode || 'null') + ' sId=' + (detectedStudentId || 'null') + ' exam=' + (detectedExamName || 'null') + ' Δ' + (Date.now() - tPhase) + 'ms');
+      } else {
+        msaLog_('[3/7 QR] NO QR found Δ' + (Date.now() - tPhase) + 'ms');
       }
+    } else {
+      msaLog_('[3/7 QR] SKIP — qCode already set: ' + detectedQuestionCode + ' Δ0ms');
     }
     
-    // AUTO-DETECT: Determine if Q1 or Q2+ from "Section A" header
+    // AUTO-DETECT: position (Q1 vs Q2+)
     if (!detectedPosition) {
       var isQ1 = detectIfQ1FromOcr(fullOcrResult);
       detectedPosition = isQ1 ? "Q1" : "Q2+";
-      msaLog_('Auto-detected position: ' + detectedPosition);
+      msaLog_('[3/7 QR] autoPos=' + detectedPosition + ' (SectionA=' + isQ1 + ')');
     }
     
+    // ─── PHASE 4: CROP ───
+    tPhase = Date.now();
     msaLog_('───────────────────────────────────────────');
-    msaLog_('✂️ [4/7 CROP] Isolating answer region from full page');
-    msaLog_('  Strategy cascade: Stored coords → Corner markers → Manual crop → Full page');
+    msaLog_('[4/7 CROP] cascade: storedCoords→markers→manual→full. qCode=' + (detectedQuestionCode || 'null') + ' pos=' + detectedPosition);
+    var cropMethod = 'none';
 
-    // OPTION 1: Try to look up stored box coordinates by question code
+    // OPTION 1: Stored box coordinates
     if (detectedQuestionCode) {
+      msaLog_('[4/7 CROP] OPT1 lookupBoxCoordinates(' + detectedQuestionCode + ',' + detectedPosition + ')');
       const storedCoords = lookupBoxCoordinates(detectedQuestionCode, detectedPosition);
       if (storedCoords) {
-        // Convert percentages to pixels based on actual image size
         cropInfo = {
           x1: Math.round(imageWidth * storedCoords.xPct / 100),
           y1: Math.round(imageHeight * storedCoords.yPct / 100),
@@ -261,117 +268,131 @@ function testStudentWorkOcr(fileId, options = {}) {
         cropInfo.width = cropInfo.x2 - cropInfo.x1;
         cropInfo.height = cropInfo.y2 - cropInfo.y1;
         markersDetected = true;
-        msaLog_('Using stored box coordinates for ' + detectedQuestionCode + ' (' + detectedPosition + '): (' + cropInfo.x1 + ',' + cropInfo.y1 + ') to (' + cropInfo.x2 + ',' + cropInfo.y2 + ')');
+        cropMethod = 'stored';
+        msaLog_('[4/7 CROP] OPT1 HIT rect=(' + cropInfo.x1 + ',' + cropInfo.y1 + ')→(' + cropInfo.x2 + ',' + cropInfo.y2 + ') ' + cropInfo.width + '×' + cropInfo.height + 'px');
         ocrResult = filterOcrResultsByRegion(fullOcrResult, cropInfo);
+        msaLog_('[4/7 CROP] filtered: ' + ocrLineCount + '→' + (ocrResult.line_data || []).length + ' lines');
+      } else {
+        msaLog_('[4/7 CROP] OPT1 MISS no stored coords');
       }
     }
     
-    // OPTION 2: Try to detect corner markers in OCR
+    // OPTION 2: Corner markers
     if (!markersDetected && options.detectMarkers !== false) {
+      msaLog_('[4/7 CROP] OPT2 findCornerMarkersInOcrResult()');
       const markers = findCornerMarkersInOcrResult(fullOcrResult);
       
       if (markers.length === 4) {
         cropInfo = calculateBoundingRectFromMarkers(markers);
         markersDetected = true;
-        msaLog_('Markers detected! Crop region: (' + cropInfo.x1 + ',' + cropInfo.y1 + ') to (' + cropInfo.x2 + ',' + cropInfo.y2 + ')');
+        cropMethod = 'markers';
+        msaLog_('[4/7 CROP] OPT2 HIT 4 markers rect=(' + cropInfo.x1 + ',' + cropInfo.y1 + ')→(' + cropInfo.x2 + ',' + cropInfo.y2 + ')');
         ocrResult = filterOcrResultsByRegion(fullOcrResult, cropInfo);
-        msaLog_('Filtered to ' + (ocrResult.line_data || []).length + ' lines inside answer box');
+        msaLog_('[4/7 CROP] filtered: ' + ocrLineCount + '→' + (ocrResult.line_data || []).length + ' lines');
       } else {
-        msaLog_('Found ' + markers.length + ' markers (need 4)');
+        msaLog_('[4/7 CROP] OPT2 MISS found=' + markers.length + ' need=4');
       }
     }
     
-    // OPTION 3: Check if manual crop region was provided
+    // OPTION 3: Manual crop
     if (!markersDetected && options.cropRegion) {
       cropInfo = options.cropRegion;
       markersDetected = true;
-      msaLog_('Using manual crop region: (' + cropInfo.x1 + ',' + cropInfo.y1 + ') to (' + cropInfo.x2 + ',' + cropInfo.y2 + ')');
+      cropMethod = 'manual';
+      msaLog_('[4/7 CROP] OPT3 manual rect=(' + cropInfo.x1 + ',' + cropInfo.y1 + ')→(' + cropInfo.x2 + ',' + cropInfo.y2 + ')');
       ocrResult = filterOcrResultsByRegion(fullOcrResult, cropInfo);
     }
     
-    // OPTION 4: No crop available - return all OCR content
+    // OPTION 4: Full image
     if (!markersDetected) {
-      msaLog_('No crop info available, returning full OCR (no filtering)');
-      // Don't filter at all - just use the full OCR result
       ocrResult = fullOcrResult;
-      markersDetected = false; // Indicate no markers/coords found
-      msaLog_('Using full image - no crop applied');
+      markersDetected = false;
+      cropMethod = 'full';
+      msaLog_('[4/7 CROP] OPT4 no crop — using full image');
     }
+    msaLog_('[4/7 CROP] DONE method=' + cropMethod + ' lines=' + (ocrResult.line_data || []).length + ' Δ' + (Date.now() - tPhase) + 'ms');
     
+    // ─── PHASE 5: CLEAN ───
+    tPhase = Date.now();
     msaLog_('───────────────────────────────────────────');
-    msaLog_('🧹 [5/7 CLEAN] Post-processing OCR text');
-    msaLog_('  Step A: Crossed-off detection (CJK \\text{} blocks from scribbles)');
-    msaLog_('  Step B: Global learned corrections (OCR_Learn.js → corrections spreadsheet)');
-    msaLog_('  Step C: Per-student corrections (StudentOCR_Profile.js → student patterns)');
+    msaLog_('[5/7 CLEAN] 3-pass: crossedOff→globalRules→studentRules');
+    var textBefore = (ocrResult.text || '').length;
 
-    // ── Crossed-off detection ──
+    // 5A: Crossed-off detection
+    var t5a = Date.now();
     var crossedOffResult = flagCrossedOffLines_(ocrResult);
+    msaLog_('[5/7 CLEAN] 5A crossedOff: cjkBlocks=' + (crossedOffResult.stats ? crossedOffResult.stats.cjkTextBlocks || 0 : 0) + ' chars=' + textBefore + '→' + crossedOffResult.cleanedText.length + ' Δ' + (Date.now() - t5a) + 'ms');
 
-    // ── Apply learned corrections (patterns seen ≥ N times) ──
+    // 5B: Global learned corrections
+    var t5b = Date.now();
     var learnedResult = { text: crossedOffResult.cleanedText, applied: [], stats: { rulesLoaded: 0, rulesApplied: 0, totalReplacements: 0 } };
     try {
+      var minFreq = (typeof MSA_OCR_LEARN_MIN_FREQUENCY !== 'undefined') ? MSA_OCR_LEARN_MIN_FREQUENCY : 2;
       learnedResult = applyLearnedCorrections_(
         crossedOffResult.cleanedText,
-        { minFrequency: (typeof MSA_OCR_LEARN_MIN_FREQUENCY !== 'undefined') ? MSA_OCR_LEARN_MIN_FREQUENCY : 2 }
+        { minFrequency: minFreq }
       );
-      // Log what the rules actually did
       if (learnedResult.applied && learnedResult.applied.length > 0) {
         learnedResult.applied.forEach(function(a) {
-          msaLog_('  📘 "' + a.pattern.substring(0, 40) + '" → "' + (a.replacement || '').substring(0, 40) + '" (×' + a.count + ')');
+          msaLog_('[5/7 CLEAN] 5B rule: "' + a.pattern.substring(0, 40) + '"→"' + (a.replacement || '').substring(0, 40) + '" ×' + a.count);
         });
       }
     } catch (learnErr) {
-      msaLog_('Learned corrections pass skipped: ' + learnErr.message);
+      msaWarn_('[5/7 CLEAN] 5B SKIP: ' + learnErr.message);
     }
+    msaLog_('[5/7 CLEAN] 5B globalRules: loaded=' + learnedResult.stats.rulesLoaded + ' applied=' + learnedResult.stats.rulesApplied + ' replacements=' + learnedResult.stats.totalReplacements + ' chars=' + crossedOffResult.cleanedText.length + '→' + learnedResult.text.length + ' Δ' + (Date.now() - t5b) + 'ms');
 
-    // ── Per-student corrections (writer-adaptive) ──
-    // Runs AFTER global corrections so student-specific fixes
-    // can override or supplement class-wide patterns.
+    // 5C: Per-student corrections
+    var t5c = Date.now();
     var studentProfileResult = { text: learnedResult.text, applied: [], stats: { rulesLoaded: 0, rulesApplied: 0, totalReplacements: 0, studentId: null } };
     var studentProfileSummary = null;
     if (detectedStudentId) {
       try {
+        var sMinFreq = (typeof MSA_STUDENT_OCR_MIN_FREQUENCY !== 'undefined') ? MSA_STUDENT_OCR_MIN_FREQUENCY : 1;
         studentProfileResult = applyStudentCorrections_(
           detectedStudentId,
           learnedResult.text,
-          { minFrequency: (typeof MSA_STUDENT_OCR_MIN_FREQUENCY !== 'undefined') ? MSA_STUDENT_OCR_MIN_FREQUENCY : 1 }
+          { minFrequency: sMinFreq }
         );
         studentProfileSummary = getStudentProfileSummary_(detectedStudentId);
+        if (studentProfileResult.applied && studentProfileResult.applied.length > 0) {
+          studentProfileResult.applied.forEach(function(a) {
+            msaLog_('[5/7 CLEAN] 5C studentRule: "' + a.pattern.substring(0, 40) + '"→"' + (a.replacement || '').substring(0, 40) + '" ×' + a.count);
+          });
+        }
       } catch (profileErr) {
-        msaLog_('Student profile corrections skipped: ' + profileErr.message);
+        msaWarn_('[5/7 CLEAN] 5C SKIP: ' + profileErr.message);
       }
+      msaLog_('[5/7 CLEAN] 5C studentRules sId=' + detectedStudentId + ': loaded=' + studentProfileResult.stats.rulesLoaded + ' applied=' + studentProfileResult.stats.rulesApplied + ' replacements=' + studentProfileResult.stats.totalReplacements + ' Δ' + (Date.now() - t5c) + 'ms');
+    } else {
+      msaLog_('[5/7 CLEAN] 5C studentRules SKIP — no studentId Δ0ms');
     }
+    msaLog_('[5/7 CLEAN] DONE text=' + textBefore + '→' + studentProfileResult.text.length + ' chars totalΔ' + (Date.now() - tPhase) + 'ms');
 
-    msaLog_('───────────────────────────────────────────');
-    msaLog_('📊 [5/7 CLEAN] Corrections summary:');
-    msaLog_('  Crossed-off: ' + (crossedOffResult.stats ? crossedOffResult.stats.cjkTextBlocks || 0 : 0) + ' CJK block(s) stripped');
-    msaLog_('  Global rules: ' + learnedResult.stats.rulesLoaded + ' loaded, ' + learnedResult.stats.rulesApplied + ' applied (' + learnedResult.stats.totalReplacements + ' replacements)');
-    msaLog_('  Student rules: ' + studentProfileResult.stats.rulesLoaded + ' loaded, ' + studentProfileResult.stats.rulesApplied + ' applied (' + studentProfileResult.stats.totalReplacements + ' replacements)');
-    msaLog_('📍 Elapsed: ' + (Date.now() - t0) + 'ms');
-
-    const processingTime = Date.now() - t0;
+    const processingTime = Date.now() - T;
     
+    // ─── PHASE 6: IMAGE ───
+    tPhase = Date.now();
     msaLog_('───────────────────────────────────────────');
-    msaLog_('📸 [6/7 IMAGE] Preparing image preview for browser');
-    msaLog_('  Large images (>500KB): fetch Drive thumbnail at s800, encode as base64');
-    msaLog_('  Small images: encode original as base64 data URL');
+    msaLog_('[6/7 IMAGE] Building browser preview. mime=' + mimeType + ' size=' + Math.round(fileSizeBytes / 1024) + 'KB');
 
-    // For preview, handle TIFF files specially since browsers don\'t support them
     let imageDataUrl;
+    var isTiff = (mimeType === 'image/tiff' || mimeType === 'image/tif');
     
-    if (mimeType === 'image/tiff' || mimeType === 'image/tif') {
-      // TIFF files: Browsers can't display TIFF natively. Fetch a Drive
-      // thumbnail as base64 so the client gets a viewable PNG preview.
-      msaLog_('📸 [Image] TIFF detected — fetching Drive thumbnail as base64 for browser preview…');
+    if (isTiff) {
+      msaLog_('[6/7 IMAGE] TIFF→thumbnail pipeline (browsers cannot render TIFF)');
       try {
         var token = ScriptApp.getOAuthToken();
         var thumbUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
+        var t6api = Date.now();
         var thumbResp = UrlFetchApp.fetch(thumbUrl, {
           headers: { Authorization: 'Bearer ' + token }
         });
+        msaLog_('[6/7 IMAGE] Drive.files.get Δ' + (Date.now() - t6api) + 'ms');
         var thumbData = JSON.parse(thumbResp.getContentText());
         if (thumbData.thumbnailLink) {
           var fetchUrl = thumbData.thumbnailLink.replace('=s220', '=s800');
+          var t6fetch = Date.now();
           var blobResp = UrlFetchApp.fetch(fetchUrl, {
             headers: { Authorization: 'Bearer ' + token },
             muteHttpExceptions: true
@@ -380,38 +401,33 @@ function testStudentWorkOcr(fileId, options = {}) {
             var tBytes = blobResp.getContent();
             var tMime = blobResp.getHeaders()['Content-Type'] || 'image/png';
             imageDataUrl = 'data:' + tMime + ';base64,' + Utilities.base64Encode(tBytes);
-            msaLog_('📸 [Image] TIFF thumbnail OK (' + Math.round(tBytes.length / 1024) + 'KB)');
+            msaLog_('[6/7 IMAGE] TIFF thumb OK ' + Math.round(tBytes.length / 1024) + 'KB fetchΔ' + (Date.now() - t6fetch) + 'ms');
           } else {
+            msaWarn_('[6/7 IMAGE] TIFF thumb HTTP ' + blobResp.getResponseCode());
             imageDataUrl = null;
           }
         } else {
+          msaWarn_('[6/7 IMAGE] TIFF no thumbnailLink in metadata');
           imageDataUrl = null;
         }
       } catch (e) {
-        msaLog_('📸 [Image] TIFF thumbnail failed: ' + e.message);
+        msaErr_('[6/7 IMAGE] TIFF thumb fail: ' + e.message);
         imageDataUrl = null;
       }
     } else {
-      // For other image types (PNG, JPG, etc.):
-      // If the file is large (>500KB), use a Drive thumbnail URL instead of base64
-      // to keep the return payload under google.script.run's size limit (~1-2MB).
-      // Use file.getSize() to avoid the expensive blob read just for a size check.
-      var fileSizeKB = Math.round(file.getSize() / 1024);
-
+      var fileSizeKB = Math.round(fileSizeBytes / 1024);
       if (fileSizeKB > 500) {
-        msaLog_('📸 [Image] Original too large for base64 (' + fileSizeKB + 'KB). Fetching server-side thumbnail at s800 for browser preview…');
+        msaLog_('[6/7 IMAGE] large file (' + fileSizeKB + 'KB>500KB) → server-side thumbnail at s800');
         try {
           var token = ScriptApp.getOAuthToken();
           var metaUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
-          var metaResp = UrlFetchApp.fetch(metaUrl, {
-            headers: { Authorization: 'Bearer ' + token }
-          });
+          var t6api = Date.now();
+          var metaResp = UrlFetchApp.fetch(metaUrl, { headers: { Authorization: 'Bearer ' + token } });
+          msaLog_('[6/7 IMAGE] Drive.files.get Δ' + (Date.now() - t6api) + 'ms');
           var metaData = JSON.parse(metaResp.getContentText());
           if (metaData.thumbnailLink) {
-            // Fetch the actual thumbnail bytes so we can return base64.
-            // The raw thumbnailLink URL requires Google auth cookies that
-            // the browser doesn't have in the Apps Script web app context.
             var thumbFetchUrl = metaData.thumbnailLink.replace('=s220', '=s800');
+            var t6fetch = Date.now();
             var thumbBlobResp = UrlFetchApp.fetch(thumbFetchUrl, {
               headers: { Authorization: 'Bearer ' + token },
               muteHttpExceptions: true
@@ -421,51 +437,49 @@ function testStudentWorkOcr(fileId, options = {}) {
               var thumbB64 = Utilities.base64Encode(thumbBytes);
               var thumbMime = thumbBlobResp.getHeaders()['Content-Type'] || 'image/png';
               imageDataUrl = 'data:' + thumbMime + ';base64,' + thumbB64;
-              msaLog_('📸 [Image] Thumbnail fetched OK (' + Math.round(thumbBytes.length / 1024) + 'KB → ' + Math.round(thumbB64.length / 1024) + 'KB base64)');
+              msaLog_('[6/7 IMAGE] thumb OK raw=' + Math.round(thumbBytes.length / 1024) + 'KB b64=' + Math.round(thumbB64.length / 1024) + 'KB fetchΔ' + (Date.now() - t6fetch) + 'ms');
             } else {
-              msaLog_('📸 [Image] Thumbnail fetch returned HTTP ' + thumbBlobResp.getResponseCode());
+              msaWarn_('[6/7 IMAGE] thumb HTTP ' + thumbBlobResp.getResponseCode());
               imageDataUrl = null;
             }
           } else {
-            msaLog_('📸 [Image] No thumbnailLink in Drive metadata');
+            msaWarn_('[6/7 IMAGE] no thumbnailLink in Drive metadata');
             imageDataUrl = null;
           }
         } catch (thumbErr) {
-          msaLog_('📸 [Image] Thumbnail fallback failed: ' + thumbErr.message);
+          msaErr_('[6/7 IMAGE] thumb fail: ' + thumbErr.message);
           imageDataUrl = null;
         }
       } else {
+        msaLog_('[6/7 IMAGE] small file (' + fileSizeKB + 'KB≤500KB) → direct base64');
+        var t6blob = Date.now();
         const base64Image = Utilities.base64Encode(file.getBlob().getBytes());
-        imageDataUrl = `data:${mimeType};base64,${base64Image}`;
+        imageDataUrl = 'data:' + mimeType + ';base64,' + base64Image;
+        msaLog_('[6/7 IMAGE] blob→b64 OK ' + Math.round(base64Image.length / 1024) + 'KB Δ' + (Date.now() - t6blob) + 'ms');
       }
     }
     
-    msaLog_('� [6/7 IMAGE] Preview ready: ' + (imageDataUrl ? (imageDataUrl.startsWith('data:') ? Math.round(imageDataUrl.length / 1024) + 'KB base64' : 'URL') : 'unavailable') + ', elapsed ' + (Date.now() - t0) + 'ms');
+    var imgSizeKB = imageDataUrl ? Math.round(imageDataUrl.length / 1024) : 0;
+    msaLog_('[6/7 IMAGE] DONE preview=' + (imageDataUrl ? imgSizeKB + 'KB' : 'null') + ' isTiff=' + isTiff + ' Δ' + (Date.now() - tPhase) + 'ms');
 
+    // ─── PHASE 7: PACKAGE ───
+    tPhase = Date.now();
     msaLog_('───────────────────────────────────────────');
-    msaLog_('📦 [7/7 PACKAGE] Building return payload');
+    msaLog_('[7/7 PKG] Building return payload');
 
-    // Calculate confidence from OCR result
-    // Mathpix confidence is often very low for handwritten content (like 0.02)
-    // because it's trained primarily on printed math
-    // We'll use a composite confidence based on multiple factors
     let rawConfidence = ocrResult.confidence || 0;
     let confidence = calculateCompositeConfidence_(ocrResult, rawConfidence);
-    msaLog_('  Mathpix raw confidence: ' + (rawConfidence * 100).toFixed(1) + '% → Composite: ' + (confidence * 100).toFixed(1) + '%');
-    msaLog_('  OCR text: ' + (ocrResult.text || '').length + ' chars, ' + ((ocrResult.text || '').includes('\\') ? 'math detected' : 'no math'));
+    msaLog_('[7/7 PKG] confidence: raw=' + (rawConfidence * 100).toFixed(1) + '%→composite=' + (confidence * 100).toFixed(1) + '%');
     
     // Check for Mathpix errors
     if (ocrResult.error) {
-      msaErr_('Mathpix API Error: ' + ocrResult.error);
-      msaErr_('Error Info: ' + JSON.stringify(ocrResult.error_info || {}));
-      // Return error to UI
+      msaErr_('[7/7 PKG] Mathpix error: ' + ocrResult.error + ' info=' + JSON.stringify(ocrResult.error_info || {}));
       return {
         status: 'error',
         message: 'Mathpix OCR failed: ' + ocrResult.error + ' - ' + JSON.stringify(ocrResult.error_info || {})
       };
     }
     
-    // Detect if math is present
     const mathDetected = (ocrResult.text || '').includes('\\') || (ocrResult.latex_styled || '').includes('\\');
 
     var returnPayload = {
@@ -473,18 +487,18 @@ function testStudentWorkOcr(fileId, options = {}) {
       fileId: fileId,
       fileName: file.getName(),
       imageUrl: imageDataUrl,
-      isTiff: (mimeType === 'image/tiff' || mimeType === 'image/tif'),
+      isTiff: isTiff,
       ocrText: ocrResult.text || '',
       latexStyled: ocrResult.latex_styled || '',
       confidence: confidence,
       mathDetected: mathDetected,
       processingTime: processingTime,
-      cropInfo: cropInfo,  // Include crop information if markers detected
+      cropInfo: cropInfo,
       markersDetected: markersDetected,
-      detectedQuestionCode: detectedQuestionCode,  // Question code from QR or input
-      detectedStudentId: detectedStudentId,          // Student ID from QR
-      detectedExamName: detectedExamName,            // Exam name from QR
-      detectedPosition: detectedPosition,  // Q1 or Q2+ 
+      detectedQuestionCode: detectedQuestionCode,
+      detectedStudentId: detectedStudentId,
+      detectedExamName: detectedExamName,
+      detectedPosition: detectedPosition,
       crossedOff: {
         flaggedLines: crossedOffResult.flaggedLines,
         stats: crossedOffResult.stats,
@@ -507,21 +521,22 @@ function testStudentWorkOcr(fileId, options = {}) {
       }
     };
 
-    // ── Return as JSON STRING, not object ──
-    // google.script.run silently returns null when it can't serialize
-    // complex nested objects. Returning a string and JSON.parse on the
-    // client side is the reliable workaround.
     var payloadJson = JSON.stringify(returnPayload);
+    var totalMs = Date.now() - T;
+    msaLog_('[7/7 PKG] DONE Δ' + (Date.now() - tPhase) + 'ms');
     msaLog_('═══════════════════════════════════════════');
-    msaLog_('✅ PIPELINE COMPLETE in ' + (Date.now() - t0) + 'ms');
-    msaLog_('  Payload: ' + Math.round(payloadJson.length / 1024) + 'KB JSON string');
-    msaLog_('  Question: ' + (detectedQuestionCode || '(unknown)') + ' | Student: ' + (detectedStudentId || '(unknown)') + ' | Position: ' + (detectedPosition || '(unknown)'));
-    msaLog_('  Image: ' + (imageDataUrl ? (imageDataUrl.length > 200 ? Math.round(imageDataUrl.length / 1024) + 'KB base64' : 'URL') : 'none') + ' | Cropped: ' + (markersDetected ? 'yes' : 'no'));
+    msaLog_('✅ PIPELINE COMPLETE totalΔ' + totalMs + 'ms');
+    msaLog_('  payload=' + Math.round(payloadJson.length / 1024) + 'KB imgB64=' + imgSizeKB + 'KB ocrChars=' + ocrTextLen + ' cleanChars=' + studentProfileResult.text.length);
+    msaLog_('  qCode=' + (detectedQuestionCode || 'null') + ' sId=' + (detectedStudentId || 'null') + ' pos=' + (detectedPosition || 'null') + ' crop=' + cropMethod + ' math=' + mathDetected + ' conf=' + (confidence * 100).toFixed(1) + '%');
+    msaLog_('  phases: FETCH=' + 'ok' + ' OCR=' + (fullOcrResult.error ? 'ERR' : 'ok') + ' QR=' + (detectedQuestionCode ? 'ok' : 'miss') + ' CROP=' + cropMethod + ' CLEAN=' + learnedResult.stats.rulesApplied + 'rules/' + studentProfileResult.stats.rulesApplied + 'student IMAGE=' + (imageDataUrl ? 'ok' : 'null') + ' PKG=ok');
     msaLog_('═══════════════════════════════════════════');
 
     return payloadJson;
   } catch (e) {
-    msaErr_(`Error in testStudentWorkOcr: ${e.message}`);
+    var errMs = Date.now() - T;
+    msaErr_('PIPELINE FAIL @' + errMs + 'ms: ' + e.message);
+    msaErr_('  stack: ' + (e.stack || 'no stack').substring(0, 300));
+    msaErr_('  fileId=' + fileId + ' opts=' + JSON.stringify({qCode: options.questionCode || null, sId: options.studentId || null, pos: options.position || null}));
     return JSON.stringify({
       status: 'error',
       message: e.message
@@ -538,6 +553,7 @@ function testStudentWorkOcr(fileId, options = {}) {
  * @returns {object} { cleanedText, flaggedLines[], stats, lineAnnotations[] }
  */
 function flagCrossedOffLines_(ocrResult) {
+  var t0 = Date.now();
   // CONSERVATIVE approach: Only strip CJK characters that are clearly isolated
   // garbage inside \text{} wrappers (e.g. \text { 演 } from misread scribbles).
   // Mathpix intentionally uses full-width characters （）＋＝ etc. — never touch those.
@@ -550,8 +566,7 @@ function flagCrossedOffLines_(ocrResult) {
   var flaggedLines = [];
   var stats = { total: lineData.length, flagged: 0, kept: 0, cjkTextBlocks: 0 };
 
-  msaLog_('=== CROSSED-OFF DETECTION (conservative) ===');
-  msaLog_('Scanning ' + lineData.length + ' lines for isolated CJK in \\text{} blocks');
+  msaLog_('  [CLEAN.crossOff] scanning ' + lineData.length + ' lines for CJK \\text{} blocks');
 
   // Scan line_data for logging purposes only
   for (var i = 0; i < lineData.length; i++) {
@@ -562,7 +577,7 @@ function flagCrossedOffLines_(ocrResult) {
       TEXT_CJK_RE.lastIndex = 0; // reset regex
       var matches = text.match(TEXT_CJK_RE) || [];
       stats.cjkTextBlocks += matches.length;
-      msaLog_('  LINE ' + i + ' [CJK \\text block] "' + matches.join(', ') + '" in: "' + text.substring(0, 80) + '"');
+      msaLog_('  [CLEAN.crossOff] L' + i + ' CJK: "' + matches.join(',') + '" in: "' + text.substring(0, 60) + '"');
       lineAnnotations.push({ status: 'cleaned', flags: ['cjk_text_stripped'], original: text });
     } else {
       lineAnnotations.push({ status: 'ok' });
@@ -580,13 +595,12 @@ function flagCrossedOffLines_(ocrResult) {
 
   if (fullText !== cleanedFullText) {
     stats.cjkTextBlocks = stats.cjkTextBlocks || 1;
-    msaLog_('Full text cleaned: ' + fullText.length + ' → ' + cleanedFullText.length + ' chars (' +
-            (fullText.length - cleanedFullText.length) + ' chars removed)');
+    msaLog_('  [CLEAN.crossOff] stripped ' + (fullText.length - cleanedFullText.length) + ' chars (' + fullText.length + '→' + cleanedFullText.length + ')');
   } else {
-    msaLog_('No CJK \\text{} blocks found — text unchanged');
+    msaLog_('  [CLEAN.crossOff] no CJK \\text{} found — unchanged');
   }
 
-  msaLog_('Crossed-off scan complete: ' + stats.cjkTextBlocks + ' CJK \\text{} block(s) stripped');
+  msaLog_('  [CLEAN.crossOff] DONE cjk=' + stats.cjkTextBlocks + ' kept=' + stats.kept + '/' + stats.total + ' Δ' + (Date.now() - t0) + 'ms');
 
   return {
     cleanedText: cleanedFullText,
@@ -1085,19 +1099,20 @@ function filterOcrResultsByRegion(ocrResult, region) {
  */
 function lookupBoxCoordinates(questionCode, position) {
   if (!questionCode) return null;
-  position = position || "Q2+"; // Default to Q2+ since most questions aren't Q1
+  position = position || "Q2+";
+  var t0 = Date.now();
   
   try {
     var dbSS = SpreadsheetApp.openById(MSA_QUESTION_META_SPREADSHEET_ID);
     var sheet = dbSS.getSheetByName("BoxCoordinates");
     
     if (!sheet) {
-      msaLog_('BoxCoordinates sheet not found in database');
+      msaLog_('  [CROP.db] BoxCoordinates sheet not found Δ' + (Date.now() - t0) + 'ms');
       return null;
     }
     
     var data = sheet.getDataRange().getValues();
-    // Headers: QuestionCode, Position, X_Pct, Y_Pct, Width_Pct, Height_Pct, ...
+    msaLog_('  [CROP.db] sheet loaded rows=' + data.length + ' Δ' + (Date.now() - t0) + 'ms');
     
     // First try exact match (questionCode + position)
     for (var i = 1; i < data.length; i++) {
@@ -1110,12 +1125,12 @@ function lookupBoxCoordinates(questionCode, position) {
           widthPct: parseFloat(data[i][4]),
           heightPct: parseFloat(data[i][5])
         };
-        msaLog_('Found stored coordinates for ' + questionCode + ' (' + position + '): ' + JSON.stringify(coords));
+        msaLog_('  [CROP.db] EXACT match row=' + i + ' x=' + coords.xPct + '% y=' + coords.yPct + '% w=' + coords.widthPct + '% h=' + coords.heightPct + '% Δ' + (Date.now() - t0) + 'ms');
         return coords;
       }
     }
     
-    // If exact position not found, try the other position as fallback
+    // Fallback: try other position
     var fallbackPosition = (position === "Q1") ? "Q2+" : "Q1";
     for (var i = 1; i < data.length; i++) {
       if (data[i][0] == questionCode && data[i][1] == fallbackPosition) {
@@ -1127,15 +1142,15 @@ function lookupBoxCoordinates(questionCode, position) {
           widthPct: parseFloat(data[i][4]),
           heightPct: parseFloat(data[i][5])
         };
-        msaLog_('Found fallback coordinates for ' + questionCode + ' (' + fallbackPosition + ' instead of ' + position + ')');
+        msaLog_('  [CROP.db] FALLBACK match row=' + i + ' pos=' + fallbackPosition + ' Δ' + (Date.now() - t0) + 'ms');
         return coords;
       }
     }
     
-    msaLog_('No stored coordinates found for ' + questionCode);
+    msaLog_('  [CROP.db] MISS qCode=' + questionCode + ' pos=' + position + ' scanned=' + (data.length - 1) + 'rows Δ' + (Date.now() - t0) + 'ms');
     return null;
   } catch (e) {
-    msaLog_('Error looking up box coordinates: ' + e.message);
+    msaErr_('  [CROP.db] ERR: ' + e.message + ' Δ' + (Date.now() - t0) + 'ms');
     return null;
   }
 }
@@ -1147,50 +1162,49 @@ function lookupBoxCoordinates(questionCode, position) {
  * @returns {object|null} Decoded QR data {studentId, questionCode, examName} or null
  */
 function decodeQrFromImage(fileId) {
+  var t0 = Date.now();
   // ── Cache check: same file always has the same QR code ──
   var cacheKey = 'qr_decode_' + fileId;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached) {
-      msaLog_('QR decode: cache HIT for ' + fileId);
-      return JSON.parse(cached);
+      var parsed = JSON.parse(cached);
+      msaLog_('  [QR.cache] HIT key=' + cacheKey.substring(0, 25) + ' data=' + JSON.stringify(parsed).substring(0, 80) + ' Δ' + (Date.now() - t0) + 'ms');
+      return parsed;
     }
   } catch (cacheErr) {
-    // cache miss or parse error — proceed
+    msaLog_('  [QR.cache] ERR: ' + cacheErr.message);
   }
+  msaLog_('  [QR.cache] MISS → calling qrserver.com API');
 
   try {
+    var tDrive = Date.now();
     var file = DriveApp.getFileById(fileId);
-    // Use file.getSize() instead of blob.getBytes().length to avoid reading
-    // the full blob into memory just for a size check (saves ~1s on 2.5MB images)
     var fileSize = file.getSize();
-    msaLog_('QR decode: fileId=' + fileId + ', file size=' + fileSize + ', mimeType=' + file.getMimeType());
+    var fileMime = file.getMimeType();
+    msaLog_('  [QR.drive] size=' + fileSize + 'B (' + Math.round(fileSize / 1024) + 'KB) mime=' + fileMime + ' Δ' + (Date.now() - tDrive) + 'ms');
     
-    // If image is larger than 500KB, get a smaller version for QR scanning
-    // Large images overwhelm the free QR API (returns HTTP 400)
     var sendBlob = null;
     if (fileSize > 500000) {
-      msaLog_('QR decode: Image too large (' + Math.round(fileSize/1024) + 'KB), getting thumbnail for QR scan...');
+      msaLog_('  [QR.resize] file>500KB → fetching thumbnail');
       try {
-        // Use Drive REST API v3 via UrlFetchApp (no advanced service needed)
         var token = ScriptApp.getOAuthToken();
         var metaUrl = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=thumbnailLink';
+        var tMeta = Date.now();
         var metaResp = UrlFetchApp.fetch(metaUrl, {
           headers: { 'Authorization': 'Bearer ' + token },
           muteHttpExceptions: true
         });
+        msaLog_('  [QR.resize] Drive.files.get HTTP' + metaResp.getResponseCode() + ' Δ' + (Date.now() - tMeta) + 'ms');
         
         if (metaResp.getResponseCode() === 200) {
           var meta = JSON.parse(metaResp.getContentText());
-          msaLog_('QR decode: Got metadata, thumbnailLink=' + (meta.thumbnailLink ? 'yes' : 'no'));
           
           if (meta.thumbnailLink) {
-            // Try progressively smaller thumbnails until one fits under 1MB
-            // s2000 is almost always >1MB for large images, so start at s1600
             var sizes = ['s1600', 's1200', 's800'];
             for (var si = 0; si < sizes.length; si++) {
               var thumbUrl = meta.thumbnailLink.replace('=s220', '=' + sizes[si]);
-              msaLog_('QR decode: Trying thumbnail at ' + sizes[si] + '...');
+              var tThumb = Date.now();
               var thumbResponse = UrlFetchApp.fetch(thumbUrl, {
                 headers: { 'Authorization': 'Bearer ' + token },
                 muteHttpExceptions: true
@@ -1198,107 +1212,91 @@ function decodeQrFromImage(fileId) {
               if (thumbResponse.getResponseCode() === 200) {
                 var thumbBlob = thumbResponse.getBlob().setName('thumb.png');
                 var thumbSize = thumbBlob.getBytes().length;
-                msaLog_('QR decode: Got thumbnail at ' + sizes[si] + ' (' + Math.round(thumbSize/1024) + 'KB)');
-                // Only use if under 1MB (QR API limit)
+                msaLog_('  [QR.resize] ' + sizes[si] + '=' + Math.round(thumbSize / 1024) + 'KB Δ' + (Date.now() - tThumb) + 'ms');
                 if (thumbSize < 1000000) {
                   sendBlob = thumbBlob;
                   break;
-                } else {
-                  msaLog_('QR decode: Thumbnail too large (' + Math.round(thumbSize/1024) + 'KB), trying smaller...');
                 }
+              } else {
+                msaLog_('  [QR.resize] ' + sizes[si] + ' HTTP' + thumbResponse.getResponseCode() + ' Δ' + (Date.now() - tThumb) + 'ms');
               }
             }
+          } else {
+            msaLog_('  [QR.resize] no thumbnailLink');
           }
-        } else {
-          msaLog_('QR decode: Drive metadata request returned HTTP ' + metaResp.getResponseCode());
         }
       } catch (thumbErr) {
-        msaLog_('QR decode: Thumbnail fallback failed: ' + thumbErr.message + ', using original blob');
+        msaWarn_('  [QR.resize] FAIL: ' + thumbErr.message);
       }
     }
     
-    // If no thumbnail was obtained (small image or all fallbacks failed), load the actual blob
     if (!sendBlob) {
-      if (fileSize <= 500000) {
-        msaLog_('QR decode: Small image (' + Math.round(fileSize/1024) + 'KB), using original blob');
-      } else {
-        msaLog_('QR decode: All thumbnail attempts failed, falling back to original blob');
-      }
+      msaLog_('  [QR.blob] using original blob (' + Math.round(fileSize / 1024) + 'KB)');
       sendBlob = file.getBlob();
     }
     
-    // Use free QR decoding API: api.qrserver.com
-    var qrApiUrl = 'https://api.qrserver.com/v1/read-qr-code/';
-    
-    var response = UrlFetchApp.fetch(qrApiUrl, {
+    // Call QR API
+    var tApi = Date.now();
+    var response = UrlFetchApp.fetch('https://api.qrserver.com/v1/read-qr-code/', {
       method: 'post',
-      payload: {
-        file: sendBlob
-      },
+      payload: { file: sendBlob },
       muteHttpExceptions: true
     });
-    
     var responseCode = response.getResponseCode();
     var responseText = response.getContentText();
-    msaLog_('QR decode: API response code=' + responseCode);
-    msaLog_('QR decode: API response (first 500 chars)=' + responseText.substring(0, 500));
+    msaLog_('  [QR.api] HTTP' + responseCode + ' body=' + responseText.length + 'B Δ' + (Date.now() - tApi) + 'ms');
     
-    // Check for non-200 responses
     if (responseCode !== 200) {
-      msaLog_('QR decode: API returned HTTP ' + responseCode + ', skipping QR detection');
+      msaLog_('  [QR.api] non-200, aborting. resp=' + responseText.substring(0, 200));
+      msaLog_('  [QR] totalΔ' + (Date.now() - t0) + 'ms result=null');
       return null;
     }
     
-    // Safely parse the response
     var result;
     try {
       result = JSON.parse(responseText);
     } catch (parseErr) {
-      msaLog_('QR decode: API response is not valid JSON: ' + responseText.substring(0, 200));
+      msaWarn_('  [QR.api] JSON parse fail: ' + responseText.substring(0, 200));
+      msaLog_('  [QR] totalΔ' + (Date.now() - t0) + 'ms result=null');
       return null;
     }
     
-    msaLog_('QR API parsed response: ' + JSON.stringify(result).substring(0, 500));
-    
-    // Response format: [{"type":"qrcode","symbol":[{"data":"...","error":null}]}]
     if (result && result[0] && result[0].symbol && result[0].symbol[0]) {
       var qrContent = result[0].symbol[0].data;
       var qrError = result[0].symbol[0].error;
       
       if (qrError) {
-        msaLog_('QR decode: symbol error: ' + qrError);
+        msaLog_('  [QR.decode] symbol error: ' + qrError);
+        msaLog_('  [QR] totalΔ' + (Date.now() - t0) + 'ms result=null(symbolErr)');
         return null;
       }
       
       if (qrContent) {
-        msaLog_('QR decode: raw content: ' + qrContent);
-        
-        // Parse the JSON content: {"s":"studentId","q":"questionCode","e":"examName"}
+        msaLog_('  [QR.decode] raw=' + qrContent.substring(0, 120));
         try {
           var qrData = JSON.parse(qrContent);
-          msaLog_('QR decode: parsed data: ' + JSON.stringify(qrData));
           var qrResult = {
             studentId: qrData.s || qrData.studentId,
             questionCode: qrData.q || qrData.questionCode,
             examName: qrData.e || qrData.examName,
             raw: qrData
           };
-          // Cache for 6 hours
           try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(qrResult), 21600); } catch(ce) {}
+          msaLog_('  [QR] totalΔ' + (Date.now() - t0) + 'ms result={q:' + (qrResult.questionCode || 'null') + ' s:' + (qrResult.studentId || 'null') + ' e:' + (qrResult.examName || 'null') + '}');
           return qrResult;
         } catch (e) {
-          msaLog_('QR decode: content is not JSON, treating as raw question code: ' + qrContent);
           var qrResult = { questionCode: qrContent };
           try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(qrResult), 21600); } catch(ce) {}
+          msaLog_('  [QR] totalΔ' + (Date.now() - t0) + 'ms result={q:' + qrContent + '} (raw string)');
           return qrResult;
         }
       }
     }
     
-    msaLog_('QR decode: No QR code found in image');
+    msaLog_('  [QR] totalΔ' + (Date.now() - t0) + 'ms result=null(noQR)');
     return null;
   } catch (e) {
-    msaLog_('QR decode: FAILED: ' + e.message);
+    msaErr_('  [QR] FAIL: ' + e.message + ' Δ' + (Date.now() - t0) + 'ms');
     return null;
   }
 }

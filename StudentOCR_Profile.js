@@ -414,16 +414,22 @@ function loadStudentRules_(studentId, opts) {
  * @returns {object} { text, applied, stats }
  */
 function applyStudentCorrections_(studentId, ocrText, opts) {
+  var t0 = Date.now();
   var emptyResult = {
     text: ocrText,
     applied: [],
     stats: { rulesLoaded: 0, rulesApplied: 0, totalReplacements: 0, studentId: studentId || null }
   };
 
-  if (!studentId || !ocrText) return emptyResult;
+  if (!studentId || !ocrText) {
+    msaLog_('[CLEAN.student] skip — no studentId or empty text');
+    return emptyResult;
+  }
 
   opts = opts || {};
+  var tLoad = Date.now();
   var rules = loadStudentRules_(studentId, opts);
+  msaLog_('[CLEAN.student] loadRules sid=' + studentId + ' n=' + rules.length + ' ' + (Date.now() - tLoad) + 'ms');
 
   if (rules.length === 0) {
     emptyResult.stats.rulesLoaded = 0;
@@ -433,6 +439,8 @@ function applyStudentCorrections_(studentId, ocrText, opts) {
   var correctedText = ocrText;
   var applied = [];
   var totalReplacements = 0;
+  var exactHits = 0;
+  var fuzzyHits = 0;
   var fuzzyDist = opts.fuzzyDistance || STUDENT_OCR_FUZZY_DISTANCE_;
 
   for (var i = 0; i < rules.length; i++) {
@@ -459,6 +467,7 @@ function applyStudentCorrections_(studentId, ocrText, opts) {
         strategy: 'exact'
       });
       totalReplacements += matches.length;
+      exactHits += matches.length;
       continue; // exact hit — skip fuzzy for this rule
     }
 
@@ -476,14 +485,15 @@ function applyStudentCorrections_(studentId, ocrText, opts) {
           fuzzyMatches: fuzzyResult.matches
         });
         totalReplacements += fuzzyResult.count;
+        fuzzyHits += fuzzyResult.count;
       }
     }
   }
 
-  if (applied.length > 0) {
-    msaLog_('👤 [' + studentId + '] Applied ' + applied.length +
-      ' student rules (' + totalReplacements + ' replacements)');
-  }
+  msaLog_('[CLEAN.student] sid=' + studentId + ' rules=' + rules.length +
+    ' applied=' + applied.length + ' repl=' + totalReplacements +
+    ' exact=' + exactHits + ' fuzzy=' + fuzzyHits +
+    ' ' + (Date.now() - t0) + 'ms');
 
   return {
     text: correctedText,

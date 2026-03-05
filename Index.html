@@ -1214,10 +1214,11 @@
        * ═══════════════════════════════════════════════════ */
       var debugSessionId_ = null;
       var debugPollTimer_ = null;
-      var debugLogIndex_  = 0;   // next entry to fetch
+      var debugLogIndex_  = 0;   // next entry to fetch (array index on server)
       var debugTotalCount_ = 0;
       var debugPanelOpen_ = false;
       var debugPollInFlight_ = false; // guard against overlapping async polls
+      var debugMaxSeq_ = -1;          // highest seq seen — for dedup
 
       function toggleDebugPanel() {
         debugPanelOpen_ = !debugPanelOpen_;
@@ -1253,6 +1254,7 @@
         stopDebugPolling_();
         clearDebugLog();
         debugLogIndex_ = 0;
+        debugMaxSeq_ = -1;
         document.getElementById('debug-status').textContent = 'Starting session…';
 
         // Create session on server
@@ -1286,12 +1288,23 @@
             try {
               var entries = JSON.parse(raw || '[]');
               if (entries.length === 0) return;
-              debugLogIndex_ += entries.length;
-              debugTotalCount_ += entries.length;
+
+              // ── Dedup by seq: only render entries we haven't seen ──
+              var newEntries = entries.filter(function(e) {
+                return (typeof e.seq === 'number') ? e.seq > debugMaxSeq_ : true;
+              });
+              if (newEntries.length === 0) return;
+
+              // Advance cursors
+              newEntries.forEach(function(e) {
+                if (typeof e.seq === 'number' && e.seq > debugMaxSeq_) debugMaxSeq_ = e.seq;
+              });
+              debugLogIndex_ += entries.length; // advance server-side cursor by raw count
+              debugTotalCount_ += newEntries.length;
               updateDebugBadge_(debugTotalCount_);
 
               var container = document.getElementById('debug-log');
-              entries.forEach(function(e) {
+              newEntries.forEach(function(e) {
                 var div = document.createElement('div');
                 div.style.padding = '1px 4px';
                 div.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
@@ -1303,7 +1316,10 @@
                 } else {
                   div.style.color = '#cdd6f4';
                 }
-                div.textContent = e.t + '  ' + (e.l === 'info' ? 'ℹ️' : e.l === 'warn' ? '⚠️' : '❌') + '  ' + e.m;
+                // Show relative timing (dt) when available
+                var timing = (typeof e.dt === 'number') ? ' +' + e.dt + 'ms' : '';
+                var icon = e.l === 'info' ? 'ℹ️' : e.l === 'warn' ? '⚠️' : '❌';
+                div.textContent = e.t + timing + '  ' + icon + '  ' + e.m;
                 container.appendChild(div);
               });
               container.scrollTop = container.scrollHeight;
