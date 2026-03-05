@@ -357,6 +357,113 @@
         background: #dc3545;
         color: white;
       }
+
+      /* Reasoning "?" button */
+      .reasoning-btn {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        padding: 0;
+        font-size: 12px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.2s;
+        background: #e3f2fd;
+        color: #1565c0;
+        border: 1px solid #90caf9;
+        margin-right: 4px;
+        vertical-align: middle;
+      }
+      .reasoning-btn:hover {
+        background: #1565c0;
+        color: white;
+        box-shadow: 0 2px 6px rgba(21,101,192,0.3);
+      }
+
+      /* Reasoning detail popover row */
+      .reasoning-panel-row td {
+        padding: 0 !important;
+        border: none !important;
+      }
+      .reasoning-detail-panel {
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+        border-radius: 6px;
+        padding: 10px 14px;
+        margin: 4px 0;
+        font-size: 12px;
+        animation: reasonPanelSlide 0.25s ease-out;
+      }
+      @keyframes reasonPanelSlide {
+        from { opacity: 0; max-height: 0; padding: 0 14px; }
+        to   { opacity: 1; max-height: 500px; padding: 10px 14px; }
+      }
+      .reasoning-detail-panel .rdp-header {
+        font-weight: 700;
+        font-size: 13px;
+        margin-bottom: 8px;
+        color: #1565c0;
+      }
+      .reasoning-detail-panel .rdp-section {
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        padding: 8px 10px;
+        margin-bottom: 8px;
+        font-size: 11px;
+        line-height: 1.6;
+        color: #555;
+      }
+      .reasoning-detail-panel .rdp-label {
+        font-weight: 600;
+        color: #333;
+        display: inline-block;
+        min-width: 80px;
+      }
+      .reasoning-detail-panel .rdp-found { color: #2e7d32; font-weight: 600; }
+      .reasoning-detail-panel .rdp-missing { color: #c62828; font-weight: 600; }
+      .reasoning-detail-panel .rdp-strategy { color: #1565c0; font-weight: 600; font-size: 12px; }
+      .reasoning-detail-panel .rdp-verdict {
+        padding: 6px 10px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 12px;
+        margin-top: 4px;
+      }
+      .reasoning-detail-panel .rdp-verdict.pass { background: #e8f5e9; color: #2e7d32; }
+      .reasoning-detail-panel .rdp-verdict.fail { background: #ffebee; color: #c62828; }
+      .reasoning-detail-panel .rdp-close {
+        float: right;
+        background: none;
+        border: none;
+        font-size: 16px;
+        cursor: pointer;
+        color: #999;
+        padding: 0 4px;
+      }
+      .reasoning-detail-panel .rdp-close:hover { color: #333; }
+
+      /* AI suggestion banner */
+      .ai-suggestion-banner {
+        margin-top: 12px;
+        padding: 12px 14px;
+        background: linear-gradient(135deg, #ede7f6 0%, #e3f2fd 100%);
+        border: 1px solid #b39ddb;
+        border-radius: 8px;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .ai-suggestion-banner .ai-header {
+        font-weight: 700;
+        font-size: 13px;
+        color: #5e35b1;
+        margin-bottom: 6px;
+      }
+      .ai-suggestion-banner .ai-body { color: #333; }
+      .ai-suggestion-banner .ai-loading {
+        color: #7e57c2;
+        font-style: italic;
+      }
       
       /* Implied mark badge */
       .implied-badge {
@@ -1110,6 +1217,7 @@
       var debugLogIndex_  = 0;   // next entry to fetch
       var debugTotalCount_ = 0;
       var debugPanelOpen_ = false;
+      var debugPollInFlight_ = false; // guard against overlapping async polls
 
       function toggleDebugPanel() {
         debugPanelOpen_ = !debugPanelOpen_;
@@ -1170,8 +1278,11 @@
 
       function pollServerLogs_() {
         if (!debugSessionId_) return;
+        if (debugPollInFlight_) return; // skip if a previous poll hasn't returned yet
+        debugPollInFlight_ = true;
         google.script.run
           .withSuccessHandler(function(raw) {
+            debugPollInFlight_ = false;
             try {
               var entries = JSON.parse(raw || '[]');
               if (entries.length === 0) return;
@@ -1201,6 +1312,7 @@
             }
           })
           .withFailureHandler(function(err) {
+            debugPollInFlight_ = false;
             // Silently ignore poll errors — server may have finished
           })
           .getServerLogs(debugSessionId_, debugLogIndex_);
@@ -1211,6 +1323,7 @@
           clearInterval(debugPollTimer_);
           debugPollTimer_ = null;
         }
+        debugPollInFlight_ = false;
         if (debugSessionId_) {
           document.getElementById('debug-status').textContent = '⏹ Session ended (' + debugTotalCount_ + ' entries)';
           debugSessionId_ = null;
@@ -2105,7 +2218,7 @@
           }
           
           html += '<table class="grading-table">';
-          html += '<tr><th style="width: 60px;">Part</th><th style="width: 50px;">Mark</th><th>Requirement</th><th style="width: 70px;">Correct</th></tr>';
+          html += '<tr><th style="width: 60px;">Part</th><th style="width: 50px;">Mark</th><th>Requirement</th><th style="width: 90px;">Correct</th></tr>';
           
           result.results.forEach((res, idx) => {
             const status = res.awarded ? '✅' : '❌';
@@ -2126,16 +2239,22 @@
             html += `<td style="text-align: center;">${markStr}</td>`;
             html += `<td class="req-cell">${reqText}</td>`;
             html += `<td style="text-align: center;">`;
+            html += `<button class="reasoning-btn" onclick="openReasoningPanel(${idx})" title="Why was this mark ${res.awarded ? 'awarded' : 'not awarded'}? Click to see grader reasoning.">?</button>`;
             html += `<button class="correction-btn ${res.awarded ? 'btn-deny' : 'btn-award'}" onclick="openCorrectionPanel(${idx})" title="${res.awarded ? 'Remove this mark' : 'Award this mark'}">`;
             html += res.awarded ? '✗' : '✓';
             html += `</button>`;
             html += `</td>`;
             html += '</tr>';
+            // Placeholder row for the reasoning detail panel (hidden by default)
+            html += `<tr class="reasoning-panel-row" id="rdp-row-${idx}" style="display:none;"><td colspan="4" style="padding:0;"></td></tr>`;
             // Placeholder row for the correction detail panel (hidden by default)
             html += `<tr class="correction-panel-row" id="cdp-row-${idx}" style="display:none;"><td colspan="4" style="padding:0;"></td></tr>`;
           });
           
           html += '</table>';
+          
+          // AI suggestion placeholder
+          html += '<div id="ai-suggestion-container"></div>';
           
           // Add part breakdown summary
           if (result.breakdown && result.breakdown.length > 0) {
@@ -2169,6 +2288,9 @@
           scoreSpan.style.color = pct >= 70 ? '#28a745' : pct >= 50 ? '#ffc107' : '#dc3545';
           
           log(`✅ Grading complete: ${result.score.awarded}/${result.score.possible} (${pct}%)`, pct >= 70 ? 'success' : 'warn');
+          
+          // Request AI suggestion asynchronously
+          requestAiSuggestion_(result);
         } else {
           log(`❌ Grading failed: ${result.message}`, 'error');
           alert(`Grading error: ${result.message}`);
@@ -2231,6 +2353,186 @@
           html += '<strong>Learned rule:</strong> ' + details.learnedRule + '<br>';
         }
         return html;
+      }
+
+      /**
+       * Open the read-only reasoning popover below a marking point row.
+       * Shows detailed grader logic without enabling corrections.
+       */
+      function openReasoningPanel(idx) {
+        if (!window.currentGradingResult || !window.currentGradingResult.results) return;
+
+        var panelRow = document.getElementById('rdp-row-' + idx);
+        if (!panelRow) return;
+
+        // Toggle off if already open
+        if (panelRow.style.display === 'table-row') {
+          panelRow.style.display = 'none';
+          panelRow.querySelector('td').innerHTML = '';
+          return;
+        }
+
+        // Close any other open reasoning panels
+        document.querySelectorAll('.reasoning-panel-row[style*="table-row"]').forEach(function(r) {
+          r.style.display = 'none';
+          r.querySelector('td').innerHTML = '';
+        });
+
+        var res = window.currentGradingResult.results[idx];
+        var details = res.details || {};
+        var awarded = res.awarded;
+        var partLabel = res.part ? '(' + res.part + ')' : '';
+        var verdictClass = awarded ? 'pass' : 'fail';
+        var verdictText = awarded ? '✅ Mark Awarded' : '❌ Mark Not Awarded';
+
+        var html = '<div class="reasoning-detail-panel">';
+        html += '<button class="rdp-close" onclick="closeReasoningPanel(' + idx + ')" title="Close">&times;</button>';
+        html += '<div class="rdp-header">🔍 Grader Reasoning — ' + (res.point_id || '') + ' ' + partLabel + ' ' + (res.marks || []).join('') + '</div>';
+
+        // Strategy used
+        html += '<div class="rdp-section">';
+        html += '<span class="rdp-label">Strategy:</span> ';
+        html += '<span class="rdp-strategy">' + (STRATEGY_LABELS[details.type] || details.type || 'none') + '</span>';
+        html += '</div>';
+
+        // What was required vs. what was found
+        html += '<div class="rdp-section">';
+        if (details.required && details.required.length) {
+          html += '<span class="rdp-label">Required:</span> ' + details.required.map(function(v) { return '<code>' + escapeHtml_(String(v)) + '</code>'; }).join(', ') + '<br>';
+        }
+        if (details.found && details.found.length) {
+          html += '<span class="rdp-label">Found:</span> <span class="rdp-found">' + details.found.map(function(v) { return '<code>' + escapeHtml_(String(v)) + '</code>'; }).join(', ') + '</span><br>';
+        }
+        if (details.missing && details.missing.length) {
+          html += '<span class="rdp-label">Missing:</span> <span class="rdp-missing">' + details.missing.map(function(v) { return '<code>' + escapeHtml_(String(v)) + '</code>'; }).join(', ') + '</span><br>';
+        }
+        if (details.student_numbers && details.student_numbers.length) {
+          var nums = details.student_numbers.slice(0, 30).map(function(v) { return '<code>' + escapeHtml_(String(v)) + '</code>'; }).join(', ');
+          if (details.student_numbers.length > 30) nums += ' … (' + details.student_numbers.length + ' total)';
+          html += '<span class="rdp-label">Student #s:</span> ' + nums + '<br>';
+        }
+        if (details.partRestricted) {
+          html += '<span class="rdp-label">Scope:</span> Search restricted to part ' + partLabel + ' text only<br>';
+        }
+        html += '</div>';
+
+        // Special badges / implication / method selection
+        var extras = [];
+        if (res.awardedByImplication) {
+          extras.push('🔗 <strong>Awarded by implication</strong> — a correct later answer implies this earlier step was done.');
+        }
+        if (res.isImplied && !res.awardedByImplication) {
+          extras.push('🔗 This is an <strong>implied mark</strong> (parenthesized in the mark scheme). It can be awarded automatically if subsequent work is correct.');
+        }
+        if (details.impliedReason) {
+          extras.push('📎 <strong>Implication trigger:</strong> ' + escapeHtml_(details.impliedReason));
+        }
+        if (res.excludedByMethod) {
+          extras.push('🔀 This mark belongs to <strong>' + (res.branch || '').replace('METHOD', 'Method ') + '</strong>, which was <em>not selected</em>. The grader selected <strong>' + (res.selectedMethod || '').replace('METHOD', 'Method ') + '</strong> as the best-scoring method.');
+        } else if (res.branch && res.branch.startsWith('METHOD')) {
+          extras.push('🔀 This mark belongs to <strong>' + res.branch.replace('METHOD', 'Method ') + '</strong>, which was <em>selected</em> as the best-scoring method.');
+        }
+        if (details.learnedRule) {
+          extras.push('📖 <strong>Learned rule applied:</strong> ' + escapeHtml_(details.learnedRule));
+        }
+        if (extras.length) {
+          html += '<div class="rdp-section">';
+          html += extras.join('<br>');
+          html += '</div>';
+        }
+
+        // Final verdict
+        html += '<div class="rdp-verdict ' + verdictClass + '">' + verdictText;
+        if (awarded && details.type === 'numeric') {
+          html += ' <span style="font-weight:normal; font-size:11px;">(Note: Strategy 3 searches globally — verify the found value is from the correct part)</span>';
+        }
+        html += '</div>';
+
+        html += '</div>';
+
+        panelRow.querySelector('td').innerHTML = html;
+        panelRow.style.display = 'table-row';
+        panelRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      function closeReasoningPanel(idx) {
+        var panelRow = document.getElementById('rdp-row-' + idx);
+        if (panelRow) {
+          panelRow.style.display = 'none';
+          panelRow.querySelector('td').innerHTML = '';
+        }
+      }
+
+      /**
+       * Request an AI-generated suggestion for this grading run.
+       * Sends grading results to server, which calls Claude API.
+       * Displays the suggestion in the ai-suggestion-container div.
+       */
+      function requestAiSuggestion_(result) {
+        var container = document.getElementById('ai-suggestion-container');
+        if (!container) return;
+
+        // Show loading state
+        container.innerHTML = '<div class="ai-suggestion-banner">' +
+          '<div class="ai-header">💡 AI Suggestion</div>' +
+          '<div class="ai-loading">Analyzing grading results…</div>' +
+          '</div>';
+
+        // Build a concise summary for the AI
+        var summary = {
+          questionCode: result.questionCode || '',
+          score: result.score,
+          results: (result.results || []).map(function(r) {
+            return {
+              point_id: r.point_id,
+              part: r.part,
+              marks: r.marks,
+              requirement: r.requirement,
+              awarded: r.awarded,
+              strategy: r.details ? r.details.type : 'none',
+              found: r.details ? r.details.found : [],
+              missing: r.details ? r.details.missing : [],
+              isImplied: r.isImplied || false,
+              awardedByImplication: r.awardedByImplication || false,
+              excludedByMethod: r.excludedByMethod || false
+            };
+          }),
+          ocrVerification: result.ocrVerification ? {
+            correctionsMade: result.ocrVerification.correctionsMade || 0,
+            confidence: result.ocrVerification.confidence
+          } : null
+        };
+
+        google.script.run
+          .withSuccessHandler(function(raw) {
+            try {
+              var suggestion = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              if (suggestion && suggestion.text) {
+                container.innerHTML = '<div class="ai-suggestion-banner">' +
+                  '<div class="ai-header">💡 AI Suggestion</div>' +
+                  '<div class="ai-body">' + escapeHtml_(suggestion.text) + '</div>' +
+                  '</div>';
+              } else if (suggestion && suggestion.error) {
+                container.innerHTML = '<div class="ai-suggestion-banner">' +
+                  '<div class="ai-header">💡 AI Suggestion</div>' +
+                  '<div class="ai-body" style="color:#999;">' + escapeHtml_(suggestion.error) + '</div>' +
+                  '</div>';
+              } else {
+                container.innerHTML = '';
+              }
+            } catch (e) {
+              console.warn('AI suggestion parse error:', e);
+              container.innerHTML = '';
+            }
+          })
+          .withFailureHandler(function(err) {
+            console.warn('AI suggestion error:', err);
+            container.innerHTML = '<div class="ai-suggestion-banner">' +
+              '<div class="ai-header">💡 AI Suggestion</div>' +
+              '<div class="ai-body" style="color:#999;">Could not generate suggestion. (AI service may not be configured yet.)</div>' +
+              '</div>';
+          })
+          .getAiSuggestion(JSON.stringify(summary));
       }
 
       /**

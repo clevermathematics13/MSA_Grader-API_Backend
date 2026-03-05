@@ -1694,3 +1694,168 @@ function loadMarkschemePreview_(questionCode) {
   msaLog_('No mark scheme preview file found in folder');
   return null;
 }
+
+
+/**
+ * Generate an AI-powered suggestion for a grading run.
+ * Calls the Anthropic Claude API with a concise summary of the grading results.
+ * Returns JSON string: { text: "..." } or { error: "..." }
+ *
+ * @param {string} summaryJson - JSON string with grading summary
+ * @return {string} JSON string with suggestion
+ */
+function getAiSuggestion(summaryJson) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var apiKey = props.getProperty('ANTHROPIC_API_KEY');
+    
+    if (!apiKey) {
+      // Fall back to a rule-based suggestion if no API key configured
+      return JSON.stringify(generateRuleBasedSuggestion_(summaryJson));
+    }
+    
+    var summary = JSON.parse(summaryJson);
+    
+    // Build a focused prompt
+    var prompt = buildSuggestionPrompt_(summary);
+    
+    var response = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      payload: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 300,
+        messages: [{
+          role: 'user',
+          content: prompt
+        }]
+      }),
+      muteHttpExceptions: true
+    });
+    
+    var code = response.getResponseCode();
+    if (code !== 200) {
+      Logger.log('Anthropic API error: ' + code + ' ' + response.getContentText().substring(0, 500));
+      // Fall back to rule-based suggestion
+      return JSON.stringify(generateRuleBasedSuggestion_(summaryJson));
+    }
+    
+    var body = JSON.parse(response.getContentText());
+    var text = body.content && body.content[0] && body.content[0].text;
+    if (text) {
+      return JSON.stringify({ text: text.trim() });
+    }
+    
+    return JSON.stringify({ error: 'AI returned empty response.' });
+  } catch (e) {
+    Logger.log('getAiSuggestion error: ' + e);
+    // Fall back to rule-based on any error
+    try {
+      return JSON.stringify(generateRuleBasedSuggestion_(summaryJson));
+    } catch (e2) {
+      return JSON.stringify({ error: 'Could not generate suggestion.' });
+    }
+  }
+}
+
+
+/**
+ * Build the prompt sent to Claude for generating a suggestion.
+ */
+function buildSuggestionPrompt_(summary) {
+  var lines = [];
+  lines.push('You are an expert IB Mathematics exam grading assistant. Analyze this automated grading result and provide ONE concise, actionable suggestion to improve the grading accuracy or the student\'s understanding. Keep it under 2 sentences.');
+  lines.push('');
+  lines.push('Question: ' + (summary.questionCode || 'unknown'));
+  lines.push('Score: ' + summary.score.awarded + '/' + summary.score.possible);
+  lines.push('');
+  lines.push('Point-by-point results:');
+  
+  (summary.results || []).forEach(function(r) {
+    var status = r.awarded ? '✅' : '❌';
+    var strategy = r.strategy || 'none';
+    var found = (r.found || []).join(', ') || 'nothing';
+    var missing = (r.missing || []).join(', ') || 'none';
+    var extras = [];
+    if (r.awardedByImplication) extras.push('implied');
+    if (r.excludedByMethod) extras.push('method-excluded');
+    lines.push(status + ' ' + r.point_id + ' (' + (r.part || '') + ') ' + (r.marks || []).join('') + 
+               ' — strategy: ' + strategy + ', found: [' + found + '], missing: [' + missing + ']' +
+               (extras.length ? ' [' + extras.join(', ') + ']' : ''));
+  });
+  
+  if (summary.ocrVerification) {
+    lines.push('');
+    lines.push('OCR: ' + summary.ocrVerification.correctionsMade + ' corrections applied');
+  }
+  
+  lines.push('');
+  lines.push('Respond with just the suggestion text — no preamble, no bullet points, no markdown. One practical observation or tip.');
+  
+  return lines.join('\n');
+}
+
+
+/**
+ * Generate a rule-based suggestion when no AI API key is configured.
+ * Analyzes the grading patterns to produce a useful observation.
+ */
+function generateRuleBasedSuggestion_(summaryJson) {
+  try {
+    var summary = typeof summaryJson === 'string' ? JSON.parse(summaryJson) : summaryJson;
+    var results = summary.results || [];
+    var score = summary.score || { awarded: 0, possible: 0 };
+    
+    // Count different patterns
+    var strategies = {};
+    var missingCount = 0;
+    var impliedCount = 0;
+    var excludedCount = 0;
+    var globalMatchCount = 0;
+    
+    results.forEach(function(r) {
+      var s = r.strategy || 'none';
+      strategies[s] = (strategies[s] || 0) + 1;
+      if (r.missing && r.missing.length > 0) missingCount++;
+      if (r.awardedByImplication) impliedCount++;
+      if (r.excludedByMethod) excludedCount++;
+      if (s === 'numeric' && r.awarded) globalMatchCount++;
+    });
+    
+    // Generate the most relevant suggestion
+    if (score.possible > 0 && score.awarded === score.possible) {
+      return { text: 'Perfect score — all marks awarded. Verify that global numeric matches (Strategy 3) found values from the correct part of the student\'s work, not coincidental numbers.' };
+    }
+    
+    if (globalMatchCount > 2) {
+      return { text: 'Multiple marks were awarded by global numeric search (Strategy 3), which scans the entire student response. Check that these numbers actually came from the relevant part — the same value might appear in a different context.' };
+    }
+    
+    if (impliedCount > 0 && missingCount > 0) {
+      return { text: impliedCount + ' mark(s) were awarded by implication while ' + missingCount + ' point(s) had missing values. Review the implied marks — a correct final answer doesn\'t always mean every intermediate step was understood.' };
+    }
+    
+    if (strategies['none'] && strategies['none'] > 2) {
+      return { text: strategies['none'] + ' marking points had no matching strategy. This may indicate OCR quality issues or mark scheme requirements that need keyword/regex patterns added to the grading engine.' };
+    }
+    
+    if (missingCount > results.length / 2) {
+      return { text: 'Over half the marking points are missing required values. The student may have used a completely different method — consider checking if an alternative method branch better matches their work.' };
+    }
+    
+    if (excludedCount > 0) {
+      return { text: 'The grader selected the best-scoring method branch, excluding ' + excludedCount + ' point(s) from alternative methods. Click ? on the excluded (grey) rows to verify the method selection was correct.' };
+    }
+    
+    // Default
+    var pct = score.possible > 0 ? Math.round(100 * score.awarded / score.possible) : 0;
+    return { text: 'Score: ' + pct + '%. Click the ? button on any marking point to see exactly which strategy was used and what evidence was found in the student\'s work.' };
+    
+  } catch (e) {
+    return { error: 'Could not analyze grading results.' };
+  }
+}
