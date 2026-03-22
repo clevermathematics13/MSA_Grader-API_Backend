@@ -1,9 +1,36 @@
-tests/**
-node_modules/**
-.git/**
-*.test.js
+**/*
+!appsscript.json
+!Index.html
+!WebApp.js
+!MSA_RunAndValidate.js
+!MSA_Helpers_And_Pass1.js
+!MSA_Drive.js
+!MSA_Atomizer_Pass1.js
+!MSA_Atomizer_Pass2.js
+!MSA_Atomizer_Pass3.js
+!MSA_Config.js
+!MSA_Preview.js
+!SRG_Grader.js
+!MSA_Mathpix.js
+!MSA_DocImages.js
+!createTestAndMS.js
+!testBuilder.js
+!Code.js
+!Archiver.js
+!DocFetcher.js
+!harvestLegacyResponces.js
+!HL chooser.js
+!inspectFolder.js
+!MasterMenu.js
+!MSA_Atomizer_Pass4.js
+!MSA_Testing.js
+!PPQselector.js
+!SL chooser.js
+# Never push Node tooling into Apps Script
+node_modules/
 package.json
 package-lock.json
-jest.config.*
-.eslintrc*
-README*
+
+# Never push git/editor metadata
+.git/
+.vscode/

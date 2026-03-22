@@ -21,17 +21,28 @@ function createTestInSlides() {
   }
 
   // 2. Export Master PDF
-  ss.toast("Step 2/3: Exporting Master PDF...", "Working", -1);
+  ss.toast("Step 2/4: Exporting Master PDF...", "Working", -1);
   var masterPdf = masterDeckFile.getAs(MimeType.PDF);
   mainFolder.createFile(masterPdf).setName(testName + " [Master].pdf");
   
-  // 3. Class Batch (Speed Mode)
-  ss.toast("Step 3/3: Processing Class Batch...", "Working", -1);
-  processClassBatch(ss, mainFolder, masterDeckFile);
+  // 3. Build Mark Scheme PDF
+  ss.toast("Step 3/4: Building Mark Scheme...", "Working", -1);
+  buildMarkSchemePDF(mainFolder);
+
+  // 4. Class Batch - controlled by checkbox in L1
+  var ppqSheet = ss.getSheetByName("PPQselector");
+  var doBatch = ppqSheet.getRange("L1").getValue();
+  if (doBatch === true) {
+    ss.toast("Step 4/4: Processing Class Batch...", "Working", -1);
+    processClassBatch(ss, mainFolder, masterDeckFile);
+  } else {
+    ss.toast("Skipped class batch (L1 unchecked).", "Info", 3);
+  }
   
-  // 4. Cleanup
+  // 5. Cleanup
   masterDeckFile.setTrashed(true); 
   ss.toast("All tasks complete!", "Success", 5);
+  return mainFolder;
 }
 
 // ==========================================
@@ -55,6 +66,7 @@ function createMasterSlideDeck(folder) {
     Logger.log("⚠️ Error loading Fiducial Image: " + e.message);
   }
 
+  var allBoxCoords = [];
   for (var i = 0; i < qDocs.length; i++) {
     var slide = deck.appendSlide(SlidesApp.PredefinedLayout.BLANK);
     var docId = qDocs[i];
@@ -77,12 +89,169 @@ function createMasterSlideDeck(folder) {
       else { headerType = "SECTION_B_CONTINUED"; }
     }
 
-    renderSlideContent(slide, doc, i + 1, (i === 0), code, headerType, fiducialBlob);
+    var coords = renderSlideContent(slide, doc, i + 1, (i === 0), code, headerType, fiducialBlob);
+    if (coords) {
+      coords.questionCode = questionCode;
+      coords.position = "Q" + (i + 1);
+      allBoxCoords.push(coords);
+    }
   }
   
+  // Write box coordinates to audit spreadsheet
+  if (allBoxCoords.length > 0) {
+    writeBoxCoordinates(allBoxCoords);
+  }
+
   updateCoverSlide(deck, null);
   deck.saveAndClose();
   return newFile;
+}
+
+// ==========================================
+// 📝 PHASE 1B: BUILD MARK SCHEME (Google Doc)
+// ==========================================
+function buildMarkSchemePDF(folder) {
+  var msDocs = getRowDataClean(8); // Row 8 = Google Doc ms IDs
+  Logger.log("[MS] Row 8 IDs: " + JSON.stringify(msDocs));
+  if (!msDocs || msDocs.length === 0) {
+    Logger.log("[MS] No mark scheme docs found (row 8 empty).");
+    return;
+  }
+
+  try {
+    // Create a combined Google Doc for the mark scheme
+    var msDoc = DocumentApp.create(testName + " [Mark Scheme]");
+    var msBody = msDoc.getBody();
+    msBody.setMarginTop(36);
+    msBody.setMarginBottom(36);
+    msBody.setMarginLeft(36);
+    msBody.setMarginRight(36);
+
+    for (var i = 0; i < msDocs.length; i++) {
+      Logger.log("[MS] Processing Doc " + i + ": " + msDocs[i]);
+      try {
+        var srcDoc = DocumentApp.openById(msDocs[i]);
+        var srcBody = srcDoc.getBody();
+        var questionNumber = i + 1;
+
+        // Add page break before each question (except the first)
+        if (i > 0) {
+          msBody.appendPageBreak();
+        }
+
+        // Add question header
+        var header = msBody.appendParagraph("— Q" + questionNumber + " Mark Scheme —");
+        header.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+        header.setAttributes({
+          FONT_SIZE: 12,
+          BOLD: true,
+          FONT_FAMILY: "Arial"
+        });
+        msBody.appendParagraph(""); // spacer
+
+        // Copy all elements from the source doc
+        for (var j = 0; j < srcBody.getNumChildren(); j++) {
+          var element = srcBody.getChild(j);
+          var elType = element.getType();
+
+          if (elType == DocumentApp.ElementType.PARAGRAPH) {
+            var srcPara = element.asParagraph();
+            var newPara = msBody.appendParagraph("");
+            // Copy text runs with their formatting
+            for (var k = 0; k < srcPara.getNumChildren(); k++) {
+              var child = srcPara.getChild(k);
+              if (child.getType() == DocumentApp.ElementType.TEXT) {
+                var textEl = child.asText();
+                var text = textEl.getText();
+                if (text.length > 0) {
+                  var appended = newPara.appendText(text);
+                  // Copy character-level attributes
+                  for (var c = 0; c < text.length; c++) {
+                    var attrs = textEl.getAttributes(c);
+                    appended.setAttributes(c, c, attrs);
+                  }
+                }
+              } else if (child.getType() == DocumentApp.ElementType.INLINE_IMAGE) {
+                var img = child.asInlineImage();
+                var blob = img.getBlob();
+                var inlineImg = newPara.appendInlineImage(blob);
+                var w = img.getWidth();
+                var h = img.getHeight();
+                if (w && h) {
+                  // Scale down if wider than ~500pt content area
+                  if (w > 500) {
+                    var scale = 500 / w;
+                    inlineImg.setWidth(Math.round(w * scale));
+                    inlineImg.setHeight(Math.round(h * scale));
+                  } else {
+                    inlineImg.setWidth(w);
+                    inlineImg.setHeight(h);
+                  }
+                }
+              }
+            }
+            // Copy paragraph attributes, then force center alignment
+            try {
+              var paraAttrs = srcPara.getAttributes();
+              if (paraAttrs) newPara.setAttributes(paraAttrs);
+            } catch(attrErr) {} // Some attributes may not transfer
+            newPara.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+
+          } else if (elType == DocumentApp.ElementType.TABLE) {
+            var srcTable = element.asTable();
+            var numRows = srcTable.getNumRows();
+            var numCols = srcTable.getRow(0).getNumCells();
+            // Build cell text array for table creation
+            var cells = [];
+            for (var r = 0; r < numRows; r++) {
+              var row = [];
+              for (var c = 0; c < numCols; c++) {
+                row.push(srcTable.getRow(r).getCell(c).getText());
+              }
+              cells.push(row);
+            }
+            var newTable = msBody.appendTable(cells);
+            // Copy cell formatting
+            for (var r = 0; r < numRows; r++) {
+              for (var c = 0; c < numCols; c++) {
+                try {
+                  var srcCell = srcTable.getRow(r).getCell(c);
+                  var dstCell = newTable.getRow(r).getCell(c);
+                  dstCell.getChild(0).asParagraph().editAsText().setAttributes(
+                    srcCell.getChild(0).asParagraph().editAsText().getAttributes()
+                  );
+                } catch(cellErr) {}
+              }
+            }
+
+          } else if (elType == DocumentApp.ElementType.LIST_ITEM) {
+            var srcItem = element.asListItem();
+            var listItem = msBody.appendListItem(srcItem.getText());
+            listItem.setGlyphType(srcItem.getGlyphType());
+            listItem.setNestingLevel(srcItem.getNestingLevel());
+            listItem.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+            try {
+              listItem.setAttributes(srcItem.getAttributes());
+            } catch(liErr) {}
+          }
+        }
+      } catch(e) {
+        Logger.log("[MS] ⚠️ MS Doc error Q" + (i+1) + ": " + e.message);
+        msBody.appendParagraph("⚠️ Error loading Q" + (i+1) + ": " + e.message);
+      }
+    }
+
+    msDoc.saveAndClose();
+
+    // Move the doc into the exam folder
+    var msFile = DriveApp.getFileById(msDoc.getId());
+    folder.addFile(msFile);
+    DriveApp.getRootFolder().removeFile(msFile);
+
+    Logger.log("[MS] ✅ Mark Scheme Google Doc created: " + msDoc.getId());
+  } catch (e) {
+    Logger.log("[MS] ❌ Mark Scheme build failed: " + e.message);
+  }
 }
 
 // ==========================================
@@ -93,89 +262,143 @@ function processClassBatch(ss, mainFolder, masterDeckFile) {
   var namesSheet = ss.getSheetByName("Names");
   if (namesSheet.getLastRow() < 2) { Logger.log("❌ Names tab empty."); return; }
   
-  var data = namesSheet.getRange(2, 1, namesSheet.getLastRow() - 1, 2).getValues();
+  var data = namesSheet.getRange(2, 1, namesSheet.getLastRow() - 1, 3).getValues();
   var generatedBlobs = []; 
   var batchFolder = getOrCreateFolder(mainFolder, "Class Batch");
   var qCodes = getRowDataClean(6); 
 
+  // Calculate base time for accommodation comparisons
+  var marksData = getRowDataClean(2);
+  var baseTotalMarks = marksData.reduce(function(a, b) { return a + Number(b); }, 0);
+  var baseMinutes = Math.ceil(baseTotalMarks * 12 / 11);
+
+  // ⚡ PRE-FETCH ALL QR CODES IN ONE BATCH (instead of 1 HTTP call per slide per student)
+  var validStudents = data.filter(function(row) { return row[0] && row[1]; });
+  ss.toast("Pre-fetching " + (validStudents.length * qCodes.length) + " QR codes...", "Batching", -1);
+  var qrRequests = [];
+  var qrKeyMap = {};
+  for (var vi = 0; vi < validStudents.length; vi++) {
+    var sid = validStudents[vi][0].split('@')[0];
+    for (var q = 0; q < qCodes.length; q++) {
+      var payload = JSON.stringify({ s: sid, q: qCodes[q], e: testName });
+      qrKeyMap[vi + "_" + q] = qrRequests.length;
+      qrRequests.push({ url: "https://quickchart.io/qr?size=150&text=" + encodeURIComponent(payload), muteHttpExceptions: true });
+    }
+  }
+  var qrResponses = qrRequests.length > 0 ? UrlFetchApp.fetchAll(qrRequests) : [];
+
+  // Build QR blob lookup: qrBlobs[studentIdx][questionIdx]
+  var qrBlobs = [];
+  for (var vi = 0; vi < validStudents.length; vi++) {
+    qrBlobs[vi] = [];
+    for (var q = 0; q < qCodes.length; q++) {
+      var resp = qrResponses[qrKeyMap[vi + "_" + q]];
+      qrBlobs[vi][q] = (resp && resp.getResponseCode() === 200) ? resp.getBlob() : null;
+    }
+  }
+  Logger.log("✅ QR batch fetched: " + qrRequests.length + " codes");
+
+  // Create combined deck upfront — append slides inline during loop
+  var combinedFile = masterDeckFile.makeCopy(testName + " [TEMP_ALL]", batchFolder);
+  var combinedDeck = SlidesApp.openById(combinedFile.getId());
+  var initSlides = combinedDeck.getSlides();
+  for (var r = initSlides.length - 1; r >= 0; r--) { initSlides[r].remove(); }
+
+  // Process each student
+  var studentIdx = 0;
   for (var i = 0; i < data.length; i++) {
     var email = data[i][0];
     var name = data[i][1];
+    var extraTimePct = data[i][2]; // Column C: extra time percentage (e.g. 25 for 25%)
     
     if (name && email) {
-      ss.toast("Stamping: " + name + " (" + (i+1) + "/" + data.length + ")", "Batching", -1);
+      ss.toast("Stamping: " + name + " (" + (studentIdx+1) + "/" + validStudents.length + ")", "Batching", -1);
       
       var tempFile = masterDeckFile.makeCopy(testName + " - " + name, batchFolder);
       var tempDeck = SlidesApp.openById(tempFile.getId());
-      var studentId = email.split('@')[0];
       
-      stampStudentData(tempDeck, name, studentId, qCodes);
-      
+      stampStudentData(tempDeck, name, email.split('@')[0], qCodes, qrBlobs[studentIdx]);
+
+      // Apply extra time accommodation on cover slide if applicable
+      if (extraTimePct && Number(extraTimePct) > 0) {
+        // Sheets stores 10% as 0.1; if value < 1 treat as decimal, else as integer %
+        var pct = Number(extraTimePct);
+        var multiplier = (pct < 1) ? pct : pct / 100;
+        var adjustedMinutes = Math.ceil(baseMinutes * (1 + multiplier));
+        tempDeck.replaceAllText(baseMinutes + " minutes", adjustedMinutes + " minutes (including accommodations)");
+      }
+
+      // Append to combined deck BEFORE closing (avoids re-opening later)
+      var studentSlides = tempDeck.getSlides();
+      for (var si = 0; si < studentSlides.length; si++) {
+        combinedDeck.appendSlide(studentSlides[si]);
+      }
+
       tempDeck.saveAndClose();
       
       var pdfBlob = tempFile.getAs(MimeType.PDF);
       pdfBlob.setName(testName + " - " + name + ".pdf");
       batchFolder.createFile(pdfBlob); 
-      generatedBlobs.push(pdfBlob);    
+      generatedBlobs.push(pdfBlob);
       
       tempFile.setTrashed(true);
+      studentIdx++;
     }
   }
   
+  // ZIP individual PDFs
   if (generatedBlobs.length > 0) {
     try {
       var zipBlob = Utilities.zip(generatedBlobs, testName + " - Class Batch.zip");
       mainFolder.createFile(zipBlob);
+      Logger.log("✅ ZIP created with " + generatedBlobs.length + " PDFs");
     } catch(e) {
       Logger.log("ZIP Error: " + e.message);
       ss.toast("ZIP failed (too large), but PDFs are saved.", "Warning");
     }
+  }
+
+  // Export combined "All Students" PDF (best-effort)
+  try {
+    ss.toast("Exporting combined PDF...", "Batching", -1);
+    combinedDeck.saveAndClose();
+    var allPdf = combinedFile.getAs(MimeType.PDF);
+    allPdf.setName(testName + " - All Students.pdf");
+    mainFolder.createFile(allPdf);
+    combinedFile.setTrashed(true);
+    Logger.log("✅ All Students PDF created");
+  } catch(e) {
+    Logger.log("⚠️ Combined PDF skipped: " + e.message);
+    ss.toast("Individual PDFs + ZIP saved. Combined PDF skipped (time limit).", "Info", 5);
   }
 }
 
 // ==========================================
 // 🖊️ STAMP ENGINE
 // ==========================================
-function stampStudentData(deck, name, studentId, qCodes) {
+function stampStudentData(deck, name, studentId, qCodes, qrBlobArray) {
   var slides = deck.getSlides();
   var PAGE_HEIGHT = 842; PAGE_WIDTH = 595;
   var qrSize = 60; 
   var qrX = (PAGE_WIDTH - qrSize) / 2; 
-  var qrY = PAGE_HEIGHT - qrSize - 10; 
+  var qrY = PAGE_HEIGHT - qrSize - 30; 
 
-  drawStudentHeader(slides[0], name);
+  // Replace placeholder name on cover (set by master's updateCoverSlide)
+  deck.replaceAllText("{StudentName}", name);
   
   for (var s = 1; s < slides.length; s++) {
-    var slide = slides[s];
     var qIndex = s - 1;
-    var currentQCode = (qIndex < qCodes.length) ? qCodes[qIndex] : "UNKNOWN_Q";
+    var qrBlob = (qrBlobArray && qIndex < qrBlobArray.length) ? qrBlobArray[qIndex] : null;
     
-    try {
-      var qrPayload = JSON.stringify({ 
-        s: studentId, 
-        q: currentQCode,
-        e: testName
-      });
-      var qrUrl = "https://quickchart.io/qr?size=150&text=" + encodeURIComponent(qrPayload);
-      var resp = UrlFetchApp.fetch(qrUrl);
-      
-      if (resp.getResponseCode() === 200) {
-        var qrBlob = resp.getBlob();
+    if (qrBlob) {
+      try {
+        var slide = slides[s];
         var img = slide.insertImage(qrBlob);
         img.setLeft(qrX).setTop(qrY).setWidth(qrSize).setHeight(qrSize);
-        
-        // Z-Order: Transparent Box on Top
-        var shapes = slide.getShapes();
-        for (var k = 0; k < shapes.length; k++) {
-          var shape = shapes[k];
-          if (shape.getShapeType() == SlidesApp.ShapeType.RECTANGLE && shape.getHeight() > 40) {
-            shape.getFill().setTransparent();
-            shape.bringToFront();
-          }
-        }
+        img.sendToBack(); // Push QR behind answer box border
+      } catch(e) {
+        Logger.log("QR Fail Slide " + s + ": " + e.message);
       }
-    } catch(e) {
-      Logger.log("QR Fail Slide " + s + ": " + e.message);
     }
   }
 }
@@ -187,10 +410,10 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
   var body = doc.getBody();
   var numChildren = body.getNumChildren();
   var PAGE_HEIGHT = 842; PAGE_WIDTH = 595;
-  var MARGIN_TOP = 40; MARGIN_BOTTOM = 50; MARGIN_LEFT = 50; CONTENT_WIDTH = 500; 
+  var MARGIN_TOP = 50; MARGIN_BOTTOM = 70; MARGIN_LEFT = 50; CONTENT_WIDTH = 500; 
   var currentY = MARGIN_TOP;
 
-  var pageNumBox = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, 0, 15, PAGE_WIDTH, 20);
+  var pageNumBox = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, 0, 25, PAGE_WIDTH, 20);
   pageNumBox.getText().setText("— " + qNum + " —").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
   pageNumBox.getText().getTextStyle().setFontSize(10).setFontFamily("Arial");
 
@@ -252,8 +475,9 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
   }
 
   // DRAW ANSWER BOX + EXTERNAL FIDUCIALS
+  var boxCoords = null;
   if (needsBox) {
-    var footerBuffer = 70; 
+    var footerBuffer = 90; 
     
     // 🔥 PADDING: Add 10px buffer above box so external markers don't hit text
     currentY += 10; 
@@ -266,6 +490,18 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
       box.getFill().setTransparent();
       box.getBorder().setWeight(1).getLineFill().setSolidFill('#000000');
       
+      // Record box coordinates (points and percentages)
+      boxCoords = {
+        x: MARGIN_LEFT,
+        y: currentY,
+        width: CONTENT_WIDTH,
+        height: boxH,
+        xPct: (MARGIN_LEFT / PAGE_WIDTH * 100),
+        yPct: (currentY / PAGE_HEIGHT * 100),
+        widthPct: (CONTENT_WIDTH / PAGE_WIDTH * 100),
+        heightPct: (boxH / PAGE_HEIGHT * 100)
+      };
+
       // 2. Draw Dotted Lines
       var lines = Math.min(Math.floor(boxH / 24), 12);
       for (var L = 1; L <= lines; L++) {
@@ -303,6 +539,7 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
       }
     }
   }
+  return boxCoords;
 
   function addTextShape(s, txt, size, bold, align) {
     var shape = s.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, currentY, CONTENT_WIDTH, size * 2);
@@ -325,7 +562,60 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
 }
 
 // ==========================================
-// 📂 HELPERS
+// � BOX COORDINATE WRITER
+// ==========================================
+function writeBoxCoordinates(allBoxCoords) {
+  try {
+    var dbSS = SpreadsheetApp.openById(DATABASE_SS_ID);
+    var sheet = dbSS.getSheetByName("BoxCoordinates");
+    if (!sheet) {
+      sheet = dbSS.insertSheet("BoxCoordinates");
+      sheet.appendRow([
+        "ExamName", "QuestionCode", "Position",
+        "X_Pct", "Y_Pct", "Width_Pct", "Height_Pct",
+        "X_Pts", "Y_Pts", "Width_Pts", "Height_Pts",
+        "Timestamp"
+      ]);
+    }
+
+    // Delete any existing rows for this exam (so re-runs update rather than duplicate)
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      var examCol = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (var r = examCol.length - 1; r >= 0; r--) {
+        if (examCol[r][0] === testName) {
+          sheet.deleteRow(r + 2);
+        }
+      }
+    }
+
+    var timestamp = new Date().toISOString();
+    var rows = allBoxCoords.map(function(c) {
+      return [
+        testName,
+        c.questionCode,
+        c.position,
+        Math.round(c.xPct * 100) / 100,
+        Math.round(c.yPct * 100) / 100,
+        Math.round(c.widthPct * 100) / 100,
+        Math.round(c.heightPct * 100) / 100,
+        Math.round(c.x * 100) / 100,
+        Math.round(c.y * 100) / 100,
+        Math.round(c.width * 100) / 100,
+        Math.round(c.height * 100) / 100,
+        timestamp
+      ];
+    });
+    // Append rows (preserving other exams' data)
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    Logger.log("[COORDS] Wrote " + rows.length + " box coordinates for exam: " + testName);
+  } catch (e) {
+    Logger.log("[COORDS] Failed to write box coordinates: " + e.message);
+  }
+}
+
+// ==========================================
+// �📂 HELPERS
 // ==========================================
 function getOrCreateFolder(parent, name) {
   var folders = parent.getFoldersByName(name);
@@ -359,9 +649,9 @@ function syncStudentNames(ss) {
     if (sourceSheet) {
       var lastRow = sourceSheet.getLastRow();
       if (lastRow > 1) {
-        var data = sourceSheet.getRange(1, 1, lastRow, 2).getValues();
+        var data = sourceSheet.getRange(1, 1, lastRow, 3).getValues();
         namesSheet.clear(); 
-        namesSheet.getRange(1, 1, data.length, 2).setValues(data); 
+        namesSheet.getRange(1, 1, data.length, 3).setValues(data); 
       }
     }
   } catch(e) { Logger.log("Sync Error: " + e.message); }
@@ -377,7 +667,7 @@ function updateCoverSlide(deck, studentName) {
   var ppqSheet = ss.getSheetByName("PPQselector") || ss.getActiveSheet();
   var rawDate = ppqSheet.getRange("I1").getValue();
   var timeStr = ppqSheet.getRange("J1").getDisplayValue(); 
-  var dateStr = Utilities.formatDate(new Date(rawDate), "GMT-5", "EEEE, MMMM dd, yyyy");
+  var dateStr = Utilities.formatDate(new Date(rawDate), ss.getSpreadsheetTimeZone(), "EEEE, MMMM dd, yyyy");
 
   deck.replaceAllText("{TestName}", testName);
   deck.replaceAllText("{Marks}", marks);
@@ -392,7 +682,7 @@ function updateCoverSlide(deck, studentName) {
   var longInstructions = "Full marks are not necessarily awarded for a correct answer with no working. Answers must be supported by working and/or explanations. Solutions found from a graphic display calculator should be supported by suitable working. For example, if graphs are used to find a solution, you should sketch these as part of your answer. Where an answer is incorrect, some marks may be given for a correct method, provided this is shown by written working. You are therefore advised to show all working.";
   deck.replaceAllText("{Instructions}", longInstructions);
   
-  drawStudentHeader(deck.getSlides()[0], studentName);
+  drawStudentHeader(deck.getSlides()[0], studentName || "{StudentName}");
 }
 
 function drawStudentHeader(slide, studentName) {
