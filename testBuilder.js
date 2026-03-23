@@ -65,8 +65,9 @@ function startBatchPDFWorkflow() {
   // Filter to valid students only (must have email AND name)
   var validStudents = data.filter(function(row) { return row[0] && row[1]; });
   var totalStudents = validStudents.length;
+  var MAX_BATCH_SIZE = 7; // Hard cap: 7 students × ~25s ≈ 175s, safe under 360s GAS limit
   var dynamicBatchSize = Number(PropertiesService.getScriptProperties().getProperty('dynamicBatchSize'));
-  var batchSize = dynamicBatchSize && dynamicBatchSize > 0 ? dynamicBatchSize : 10;
+  var batchSize = dynamicBatchSize && dynamicBatchSize > 0 ? Math.min(dynamicBatchSize, MAX_BATCH_SIZE) : MAX_BATCH_SIZE;
 
   wlog('Valid students found: ' + totalStudents);
   wlog('Batch size: ' + batchSize);
@@ -197,8 +198,9 @@ function runBatchPDFStep() {
     var avgDuration = timingLog.reduce(function(sum, entry) { return sum + entry.duration; }, 0) / timingLog.length;
     var totalBatchDuration = timingLog.reduce(function(sum, entry) { return sum + entry.duration; }, 0);
     var newBatchSize = batchSize;
+    var MAX_BATCH_SIZE = 7;
     if (avgDuration < 180) {
-      newBatchSize = Math.min(batchSize + 5, 50);
+      newBatchSize = Math.min(batchSize + 2, MAX_BATCH_SIZE);
     } else if (avgDuration > 300) {
       newBatchSize = Math.max(batchSize - 2, 2);
     }
