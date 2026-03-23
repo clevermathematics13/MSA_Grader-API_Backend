@@ -850,6 +850,219 @@ function linkToDriveFolder() {
 function storeVariable(idToStore) { scriptProperties.setProperty('Id', idToStore); }
 
 /**
+ * 📓 Export to Gradebook
+ * Reads question data from PPQselector and writes a grading template
+ * into the master database spreadsheet.
+ */
+function exportToGradebook() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ppq = ss.getSheetByName("PPQselector");
+  
+  var testNameVal = ppq.getRange(1, 7).getValue(); // G1 = test name
+  if (!testNameVal) {
+    SpreadsheetApp.getUi().alert("❌ No test name found in G1. Build an exam first.");
+    return;
+  }
+
+  var masterSS = SpreadsheetApp.openById(MASTER_DATABASE_ID);
+  
+  // Clean sheet name (same convention as createFormAndRegister)
+  var cleanSheetName = testNameVal.toString().replace(/ \[/, "_").replace(/\] /, "_").replace(/ /g, "_");
+  
+  // Get or create the grade tab
+  var gradeSheet = masterSS.getSheetByName(cleanSheetName);
+  if (!gradeSheet) {
+    gradeSheet = masterSS.insertSheet(cleanSheetName);
+  } else {
+    // Clear existing content below headers
+    if (gradeSheet.getLastRow() > 3) {
+      gradeSheet.getRange(4, 1, gradeSheet.getLastRow() - 3, gradeSheet.getLastColumn()).clearContent();
+    }
+  }
+  
+  // Read PPQselector data
+  var qCodes = getRowDataClean(6);   // Row 6: question codes
+  var qMarks = getRowDataClean(2);   // Row 2: total marks per question
+  var qLabels = getRowDataClean(3);  // Row 3: question labels
+  
+  if (qCodes.length === 0) {
+    SpreadsheetApp.getUi().alert("❌ No questions found in PPQselector row 6.");
+    return;
+  }
+
+  // Build header rows
+  // Row 1: Test name
+  gradeSheet.getRange(1, 1).setValue(testNameVal);
+  
+  // Row 2: "Total" label + total marks per question
+  var row2 = ["", "Total"];
+  for (var i = 0; i < qMarks.length; i++) {
+    row2.push(qMarks[i]);
+  }
+  gradeSheet.getRange(2, 1, 1, row2.length).setValues([row2]);
+  
+  // Row 3: "Email", "Name", then question labels or codes
+  var row3 = ["Email", "Name"];
+  for (var i = 0; i < qCodes.length; i++) {
+    row3.push(qLabels[i] || qCodes[i]);
+  }
+  gradeSheet.getRange(3, 1, 1, row3.length).setValues([row3]);
+  
+  // Row 4+: Pull student list
+  var studentSheet = masterSS.getSheetByName("Students");
+  if (studentSheet && studentSheet.getLastRow() > 1) {
+    var students = studentSheet.getRange(2, 1, studentSheet.getLastRow() - 1, 2).getValues();
+    var studentRows = students.filter(function(r) { return r[0] !== ""; });
+    if (studentRows.length > 0) {
+      gradeSheet.getRange(4, 1, studentRows.length, 2).setValues(studentRows);
+    }
+  }
+  
+  SpreadsheetApp.getActiveSpreadsheet().toast("✅ Gradebook exported: " + cleanSheetName, "Success", 5);
+}
+
+/**
+ * ♻️ Reset Builder Form
+ * Resets the PPQselector to a clean state, clearing all question data
+ * but preserving the sheet structure and Row 3 labels.
+ */
+function resetBuilder() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ppq = ss.getSheetByName("PPQselector");
+  
+  // Clear Row 1 (test name, column counter, config) except structure
+  ppq.getRange("G1:AZ1").clearContent();
+  
+  // Clear Row 2 (total marks)
+  ppq.getRange("G2:AZ2").clearContent();
+  
+  // Row 3 is PROTECTED (question labels) — do not touch
+  
+  // Clear Rows 4 onward (syllabus, codes, doc IDs, parts, marks)
+  ppq.getRange("G4:AZ50").clearContent();
+  
+  // Reset column counter to 6 (next click writes to col G = 7)
+  ppq.getRange(1, 2).setValue(6);
+  
+  // Clear stored script properties
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty('Id');
+  
+  // Reset checkboxes on HL list and SL list
+  var hlSheet = ss.getSheetByName("HL list");
+  var slSheet = ss.getSheetByName("SL list");
+  
+  if (hlSheet) {
+    var hlLast = hlSheet.getLastRow();
+    var hlLastCol = hlSheet.getLastColumn();
+    if (hlLast > 0 && hlLastCol > 0) {
+      var hlData = hlSheet.getRange(1, 1, hlLast, hlLastCol).getValues();
+      for (var r = 0; r < hlData.length; r++) {
+        for (var c = 0; c < hlData[r].length; c++) {
+          if (hlData[r][c] === true) {
+            hlSheet.getRange(r + 1, c + 1).setValue(false);
+          }
+        }
+      }
+    }
+  }
+  
+  if (slSheet) {
+    var slLast = slSheet.getLastRow();
+    var slLastCol = slSheet.getLastColumn();
+    if (slLast > 0 && slLastCol > 0) {
+      var slData = slSheet.getRange(1, 1, slLast, slLastCol).getValues();
+      for (var r = 0; r < slData.length; r++) {
+        for (var c = 0; c < slData[r].length; c++) {
+          if (slData[r][c] === true) {
+            slSheet.getRange(r + 1, c + 1).setValue(false);
+          }
+        }
+      }
+    }
+  }
+  
+  ss.toast("♻️ Builder form reset. Checkboxes cleared.", "Reset Complete", 3);
+}
+
+/**
+ * 🧨 Nuke Everything
+ * Aggressively clears ALL workspace data across PPQselector,
+ * HL list, SL list checkboxes, and chooser sheets.
+ */
+function clearAll() {
+  var ui = SpreadsheetApp.getUi();
+  var confirm = ui.alert(
+    "🧨 Nuke Everything",
+    "This will clear ALL data in PPQselector (including Row 3 labels), " +
+    "reset all checkboxes, and clear chooser sheets.\n\nAre you sure?",
+    ui.ButtonSet.YES_NO
+  );
+  
+  if (confirm !== ui.Button.YES) {
+    return;
+  }
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ppq = ss.getSheetByName("PPQselector");
+  
+  // 1. Nuke PPQselector — ALL rows including Row 3
+  ppq.getRange("G1:AZ50").clearContent();
+  ppq.getRange(1, 2).setValue(6); // Reset column counter
+  
+  // 2. Clear stored properties
+  var props = PropertiesService.getScriptProperties();
+  props.deleteAllProperties();
+  
+  // 3. Reset ALL checkboxes on HL list
+  var hlSheet = ss.getSheetByName("HL list");
+  if (hlSheet) {
+    var hlLast = hlSheet.getLastRow();
+    var hlLastCol = hlSheet.getLastColumn();
+    if (hlLast > 0 && hlLastCol > 0) {
+      var hlData = hlSheet.getRange(1, 1, hlLast, hlLastCol).getValues();
+      for (var r = 0; r < hlData.length; r++) {
+        for (var c = 0; c < hlData[r].length; c++) {
+          if (hlData[r][c] === true) {
+            hlSheet.getRange(r + 1, c + 1).setValue(false);
+          }
+        }
+      }
+    }
+  }
+  
+  // 4. Reset ALL checkboxes on SL list
+  var slSheet = ss.getSheetByName("SL list");
+  if (slSheet) {
+    var slLast = slSheet.getLastRow();
+    var slLastCol = slSheet.getLastColumn();
+    if (slLast > 0 && slLastCol > 0) {
+      var slData = slSheet.getRange(1, 1, slLast, slLastCol).getValues();
+      for (var r = 0; r < slData.length; r++) {
+        for (var c = 0; c < slData[r].length; c++) {
+          if (slData[r][c] === true) {
+            slSheet.getRange(r + 1, c + 1).setValue(false);
+          }
+        }
+      }
+    }
+  }
+  
+  // 5. Clear chooser sheets
+  var hlChooser = ss.getSheetByName("HL chooser");
+  if (hlChooser && hlChooser.getLastRow() > 1) {
+    hlChooser.getRange(2, 1, hlChooser.getLastRow() - 1, hlChooser.getLastColumn()).clearContent();
+  }
+  
+  var slChooser = ss.getSheetByName("SL chooser");
+  if (slChooser && slChooser.getLastRow() > 1) {
+    slChooser.getRange(2, 1, slChooser.getLastRow() - 1, slChooser.getLastColumn()).clearContent();
+  }
+  
+  ss.toast("🧨 Everything nuked. All data cleared.", "Nuke Complete", 5);
+}
+
+/**
  * 🆕 CREATE FORM AND REGISTER IN DATABASE
  * Creates a Google Form, connects it to the master database, and registers it.
  */
