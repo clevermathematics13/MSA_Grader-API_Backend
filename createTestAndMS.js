@@ -58,14 +58,6 @@ function createMasterSlideDeck(folder) {
   var layoutMap = fetchLayoutCodesFromDatabase(null); 
   var hasSectionBStarted = false;
 
-  // 🔥 FETCH FIDUCIAL MARKER ONCE
-  var fiducialBlob = null;
-  try {
-    fiducialBlob = DriveApp.getFileById(FIDUCIAL_IMAGE_ID).getBlob();
-  } catch(e) {
-    Logger.log("⚠️ Error loading Fiducial Image: " + e.message);
-  }
-
   var allBoxCoords = [];
   for (var i = 0; i < qDocs.length; i++) {
     var slide = deck.appendSlide(SlidesApp.PredefinedLayout.BLANK);
@@ -89,7 +81,7 @@ function createMasterSlideDeck(folder) {
       else { headerType = "SECTION_B_CONTINUED"; }
     }
 
-    var coords = renderSlideContent(slide, doc, i + 1, (i === 0), code, headerType, fiducialBlob);
+    var coords = renderSlideContent(slide, doc, i + 1, (i === 0), code, headerType);
     if (coords) {
       coords.questionCode = questionCode;
       coords.position = "Q" + (i + 1);
@@ -406,7 +398,7 @@ function stampStudentData(deck, name, studentId, qCodes, qrBlobArray) {
 // ==========================================
 // 🖼️ RENDER ENGINE (MASTER)
 // ==========================================
-function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerType, fiducialBlob) {
+function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerType) {
   var body = doc.getBody();
   var numChildren = body.getNumChildren();
   var PAGE_HEIGHT = 842; PAGE_WIDTH = 595;
@@ -511,32 +503,7 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
         line.setDashStyle(SlidesApp.DashStyle.DOT).setWeight(1);
       }
       
-      // 3. 🔥 INSERT EXTERNAL FIDUCIAL MARKERS
-      if (fiducialBlob) {
-        var fSize = 6; // Tiny 6pt size
-        var gap = 2;   // 2pt gap from corner
-        
-        // Coordinates: Diagonally Outside
-        var corners = [
-          // Top-Left: Left & Up
-          { x: MARGIN_LEFT - fSize - gap, y: currentY - fSize - gap },
-          
-          // Top-Right: Right & Up
-          { x: MARGIN_LEFT + CONTENT_WIDTH + gap, y: currentY - fSize - gap },
-          
-          // Bottom-Left: Left & Down
-          { x: MARGIN_LEFT - fSize - gap, y: currentY + boxH + gap },
-          
-          // Bottom-Right: Right & Down
-          { x: MARGIN_LEFT + CONTENT_WIDTH + gap, y: currentY + boxH + gap }
-        ];
-        
-        corners.forEach(function(pos) {
-          var img = slide.insertImage(fiducialBlob);
-          img.setLeft(pos.x).setTop(pos.y).setWidth(fSize).setHeight(fSize);
-          // Note: Since they are outside, Z-order matters less, but we leave it default
-        });
-      }
+
     }
   }
   return boxCoords;
