@@ -826,6 +826,18 @@ function getRowDataClean(rowNumber) {
   return data.filter(function(cell) { return cell !== "" && cell !== null; });
 }
 
+function resetIteration() {
+  // 1. Clear Row 2 ONLY (Total Marks)
+  ppqSelector.getRange("G2:AZ2").clearContent();
+  
+  // 2. Clear Row 4 down to the bottom (Syllabus, Codes, Docs, Parts, Marks)
+  // This explicitly PROTECTS Row 3 (Question Labels)
+  ppqSelector.getRange("G4:AZ50").clearContent(); 
+  
+  // Reset Column Counter to 6 (Column F) so the next click starts at 7 (G)
+  ppqSelector.getRange(1,2).setValue(6);
+}
+
 function linkToDriveFolder() {
   codeCell = ppqSelector.getRange("G6");
   var codeCellColumn = codeCell.getColumn();
