@@ -100,6 +100,11 @@ function createMasterSlideDeck(folder) {
       code = "B_DETECTED"; 
     }
 
+    // Default to A1 (answer box) if no layout code found and not Section B
+    if (!code) {
+      code = "A1";
+    }
+
     var headerType = "NONE";
     var isTypeB = (code.toString().toUpperCase().startsWith("B"));
     if (isTypeB) {
@@ -454,7 +459,7 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
     currentY += 25;
   }
 
-  var needsBox = (layoutCode && layoutCode.toString().trim().toUpperCase() === "A1");
+  var needsBox = !layoutCode.toString().toUpperCase().startsWith("B");
   var hasAddedNumber = false; 
 
   for (var i = 0; i < numChildren; i++) {
