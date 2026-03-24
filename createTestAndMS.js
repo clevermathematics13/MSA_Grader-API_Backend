@@ -1,5 +1,31 @@
 // --- GLOBAL CONFIGURATION ---
-var SLIDE_TEMPLATE_ID = "1NHn0YHpXI2vSe93Eb5ZqjpOOrja7bIk7RWIQ04YghJM"; 
+var SLIDE_TEMPLATE_MAP = {
+  "AH_P1": "1U78I4Kb0YiAqc0R6ToUIlBcUjZBfAytHiOy8S6Tvb44",
+  "AH_P2": "1NHn0YHpXI2vSe93Eb5ZqjpOOrja7bIk7RWIQ04YghJM",
+  "AH_P3": "1kHNlxofIGvKswyjChXhTdwUugHh1q_p1QdesWJSSUas",
+  "AS_P1": "1TxYOgV2EGgreU0oDz82ANyFrWZ0V0DFqgmqKUE2pwOg",
+  "AS_P2": "1wmW3sKhwDMcqQ1ExyVrrngge1b2hgngi8icAsiE-fPc",
+  "IS_P1": "1bbilLJFXIUSBQ5107DwnF_rMt9-xGrUiBuCWWFBkHHU",
+  "IS_P2": "1TbES-KYjCbc_aznH_5061dYJizBo2fYhJz2HTuxYkxs",
+  "IH_P1": "1e2SU7CMdVzIDZMm7p3Sn6w8-3ze375da6heseGUUYTs",
+  "IH_P2": "1FGmu2L1-CB1LlNUC0fko8EUG9T5Skj_iXJ-KdriMNOk",
+  "IH_P3": "1EoEoHNvRgbT3rfWFVm8RPwbJGMtsv9juty9N1jaoGuQ"
+};
+
+function getSlideTemplateId(name) {
+  var upper = (name || testName).toUpperCase();
+  var levels = ["AH", "AS", "IH", "IS"];
+  var papers = ["P3", "P2", "P1"]; // check P3 before P1 to avoid false match
+  for (var l = 0; l < levels.length; l++) {
+    for (var p = 0; p < papers.length; p++) {
+      if (upper.indexOf(levels[l]) !== -1 && upper.indexOf(papers[p]) !== -1) {
+        return SLIDE_TEMPLATE_MAP[levels[l] + "_" + papers[p]];
+      }
+    }
+  }
+  throw new Error("No slide template found for exam name: " + name + ". Expected level (AH/AS/IH/IS) and paper (P1/P2/P3) in the name.");
+}
+
 var DATABASE_SS_ID = "1fc7cWtM83oxQ8rMIX8F_sgjN1xCkLpqdbeTzIG33kPU"; // Audit Sheet
 var STUDENT_SOURCE_ID = "1bQoToVwjbszmmsoQNmPrpNpb0dT3ZNJTBM6sS49slXU"; // Student Source
 var FIDUCIAL_IMAGE_ID = "1DRw6kSFZA4oHNC527_dwrV30Lr2eIxQY"; // ⬛ Anchor Image
@@ -49,7 +75,7 @@ function createTestInSlides() {
 // 🏗️ PHASE 1: BUILD MASTER TEMPLATE
 // ==========================================
 function createMasterSlideDeck(folder) {
-  var templateFile = DriveApp.getFileById(SLIDE_TEMPLATE_ID);
+  var templateFile = DriveApp.getFileById(getSlideTemplateId(testName));
   var newFile = templateFile.makeCopy(testName + " [TEMP_MASTER]", folder);
   var deck = SlidesApp.openById(newFile.getId());
   
