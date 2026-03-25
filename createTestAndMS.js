@@ -500,9 +500,10 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
           noWriteText.getRange(notIdx, notIdx + 3).getTextStyle().setBold(true);
           currentY += 25;
         }
-        var contHeader = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, 0, 25, PAGE_WIDTH, 20);
-        contHeader.getText().setText("— " + qNum + " (continued) —").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
-        contHeader.getText().getTextStyle().setFontSize(10).setFontFamily("Arial");
+        var contHeader = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, currentY, CONTENT_WIDTH, 20);
+        contHeader.getText().setText("(Question " + qNum + " continued)").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.START);
+        contHeader.getText().getTextStyle().setFontSize(11).setFontFamily("Arial").setBold(true).setForegroundColor("#000000");
+        currentY += 30;
         continue;
       }
       if (cleanText === "Section B" || cleanText.startsWith("Do not write solutions") || cleanText.startsWith("Answer all questions") || cleanText.includes("!@#")) continue; 
