@@ -29,6 +29,7 @@ function getSlideTemplateId(name) {
 var DATABASE_SS_ID = "1fc7cWtM83oxQ8rMIX8F_sgjN1xCkLpqdbeTzIG33kPU"; // Audit Sheet
 var STUDENT_SOURCE_ID = "1bQoToVwjbszmmsoQNmPrpNpb0dT3ZNJTBM6sS49slXU"; // Student Source
 var FIDUCIAL_IMAGE_ID = "1DRw6kSFZA4oHNC527_dwrV30Lr2eIxQY"; // ⬛ Anchor Image
+var SLIDE_QUESTION_MAP = []; // Maps slide index (0-based, excl. cover) -> question index
 
 // ==========================================
 // 🔗 MAIN COMMAND
@@ -84,6 +85,7 @@ function createMasterSlideDeck(folder) {
   var layoutMap = fetchLayoutCodesFromDatabase(null); 
   var hasSectionBStarted = false;
 
+  SLIDE_QUESTION_MAP = [];
   var allBoxCoords = [];
   for (var i = 0; i < qDocs.length; i++) {
     var slide = deck.appendSlide(SlidesApp.PredefinedLayout.BLANK);
@@ -112,7 +114,11 @@ function createMasterSlideDeck(folder) {
       else { headerType = "SECTION_B_CONTINUED"; }
     }
 
-    var coords = renderSlideContent(slide, doc, i + 1, (i === 0), code, headerType);
+    var result = renderSlideContent(slide, doc, i + 1, (i === 0), code, headerType, deck);
+    var coords = result.coords;
+    var extraSlides = result.extraSlides || 0;
+    SLIDE_QUESTION_MAP.push(i); // main slide
+    for (var es = 0; es < extraSlides; es++) { SLIDE_QUESTION_MAP.push(i); }
     if (coords) {
       coords.questionCode = questionCode;
       coords.position = "Q" + (i + 1);
@@ -410,7 +416,7 @@ function stampStudentData(deck, name, studentId, qCodes, qrBlobArray) {
   deck.replaceAllText("{StudentName}", name);
   
   for (var s = 1; s < slides.length; s++) {
-    var qIndex = s - 1;
+    var qIndex = (SLIDE_QUESTION_MAP.length > 0) ? SLIDE_QUESTION_MAP[s - 1] : (s - 1);
     var qrBlob = (qrBlobArray && qIndex < qrBlobArray.length) ? qrBlobArray[qIndex] : null;
     
     if (qrBlob) {
@@ -429,12 +435,13 @@ function stampStudentData(deck, name, studentId, qCodes, qrBlobArray) {
 // ==========================================
 // 🖼️ RENDER ENGINE (MASTER)
 // ==========================================
-function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerType) {
+function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerType, deck) {
   var body = doc.getBody();
   var numChildren = body.getNumChildren();
   var PAGE_HEIGHT = 842; PAGE_WIDTH = 595;
   var MARGIN_TOP = 50; MARGIN_BOTTOM = 70; MARGIN_LEFT = 50; CONTENT_WIDTH = 500; 
   var currentY = MARGIN_TOP;
+  var extraSlideCount = 0;
 
   var pageNumBox = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, 0, 25, PAGE_WIDTH, 20);
   pageNumBox.getText().setText("— " + qNum + " —").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
@@ -468,6 +475,21 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
       var p = element.asParagraph();
       var text = p.getText();
       var cleanText = text.trim();
+      // A2 page break: split question across two slides
+      if (cleanText === "!@#PAGEBREAK") {
+        // Add continuation note at bottom of current page
+        var contNote = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, currentY + 10, CONTENT_WIDTH, 20);
+        contNote.getText().setText("(This question continues on the following page)").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+        contNote.getText().getTextStyle().setFontSize(10).setFontFamily("Arial").setBold(true);
+        // Create continuation slide
+        slide = deck.appendSlide(SlidesApp.PredefinedLayout.BLANK);
+        extraSlideCount++;
+        currentY = MARGIN_TOP;
+        var contHeader = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, 0, 25, PAGE_WIDTH, 20);
+        contHeader.getText().setText("— " + qNum + " (continued) —").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+        contHeader.getText().getTextStyle().setFontSize(10).setFontFamily("Arial");
+        continue;
+      }
       if (cleanText === "Section B" || cleanText.startsWith("Do not write solutions") || cleanText.startsWith("Answer all questions") || cleanText.includes("!@#")) continue; 
 
       if (cleanText.length > 0) {
@@ -537,7 +559,7 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
 
     }
   }
-  return boxCoords;
+  return { coords: boxCoords, extraSlides: extraSlideCount };
 
   function addTextShape(s, txt, size, bold, align) {
     var shape = s.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, currentY, CONTENT_WIDTH, size * 2);
