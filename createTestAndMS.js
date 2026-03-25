@@ -475,7 +475,7 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
       var p = element.asParagraph();
       var text = p.getText();
       var cleanText = text.trim();
-      // A2 page break: split question across two slides
+      // Page break: split question across two slides (works for Section A and B)
       if (cleanText === "!@#PAGEBREAK") {
         // Add continuation note at bottom of current page
         var contNote = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, currentY + 10, CONTENT_WIDTH, 20);
@@ -485,6 +485,17 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
         slide = deck.appendSlide(SlidesApp.PredefinedLayout.BLANK);
         extraSlideCount++;
         currentY = MARGIN_TOP;
+        // Section B continuation pages need "Do not write solutions" header
+        if (layoutCode.toString().toUpperCase().startsWith("B")) {
+          var noWriteShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, currentY, CONTENT_WIDTH, 24);
+          var noWriteText = noWriteShape.getText();
+          noWriteText.setText("Do not write solutions on this page.");
+          noWriteText.getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.START);
+          noWriteText.getTextStyle().setFontSize(12).setFontFamily("Arial").setBold(false);
+          var notIdx = "Do not write solutions on this page.".indexOf("not");
+          noWriteText.getRange(notIdx, notIdx + 3).getTextStyle().setBold(true);
+          currentY += 25;
+        }
         var contHeader = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, 0, 25, PAGE_WIDTH, 20);
         contHeader.getText().setText("— " + qNum + " (continued) —").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
         contHeader.getText().getTextStyle().setFontSize(10).setFontFamily("Arial");
