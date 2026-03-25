@@ -97,15 +97,18 @@ function createMasterSlideDeck(folder) {
     var body = doc.getBody();
     var firstText = body.getText().substring(0, 500); 
     
-    // Detect Section B content - override layout codes if Section B keywords found
+    // Detect Section B content - override layout code
     if (firstText.includes("Section B") || firstText.includes("Do not write solutions")) {
-      code = "B_DETECTED"; 
+      code = "B"; 
     }
 
-    // Default to A1 (answer box) if no layout code found and not Section B
+    // Default to A (answer box) if no layout code found and not Section B
     if (!code) {
-      code = "A1";
+      code = "A";
     }
+
+    // Normalize: anything starting with A -> "A", anything starting with B -> "B"
+    code = code.toString().toUpperCase().startsWith("B") ? "B" : "A";
 
     var headerType = "NONE";
     var isTypeB = (code.toString().toUpperCase().startsWith("B"));
@@ -477,8 +480,9 @@ function renderSlideContent(slide, doc, qNum, isFirstPage, layoutCode, headerTyp
       var cleanText = text.trim();
       // Page break: split question across two slides (works for Section A and B)
       if (cleanText === "!@#PAGEBREAK") {
-        // Add continuation note at bottom of current page
-        var contNote = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, currentY + 10, CONTENT_WIDTH, 20);
+        // Add continuation note above the QR code zone (QR sits at y≈752)
+        var contNoteY = PAGE_HEIGHT - 140; // y=702, well above QR at 752
+        var contNote = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, MARGIN_LEFT, contNoteY, CONTENT_WIDTH, 20);
         contNote.getText().setText("(This question continues on the following page)").getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
         contNote.getText().getTextStyle().setFontSize(10).setFontFamily("Arial").setBold(true);
         // Create continuation slide
