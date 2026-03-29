@@ -355,8 +355,12 @@ function restoreArchivedExam() {
 
   // 7. Skip archive row 3 (Row 3 in PPQ never changes)
 
-  // 8. Parse body rows (archive rows 4+) → PPQ rows 5+
-  // Body rows map: archive body row 1 → PPQ row 5, body row 2 → PPQ row 6, etc.
+  // 8. Parse body rows (archive rows 4+) → PPQ rows 6+
+  // The archive body contains rows 5-40 from PPQselector (row 5 = stripped codes,
+  // row 6 = question codes, row 7 = doc IDs, etc.). For old archives, row 5 was
+  // not included so the body starts directly with question codes.
+  // Strategy: always write to PPQ row 6 onward, then regenerate row 5 from row 6.
+  // This works for BOTH old and new archive formats.
   var bodyStartIndex = 3; // 0-indexed: row 4 of block
   var bodyValues = [];
   var bodyRichText = [];
@@ -365,95 +369,47 @@ function restoreArchivedExam() {
     bodyRichText.push(blockRichText[i]);
   }
 
-  // Determine if this is an old-format archive (no row 5 stripped codes)
-  // New format: body row 1 = stripped codes (row 5), body row 2 = full question codes (row 6)
-  // Old format: body row 1 = full question codes (row 6) directly
-  // Heuristic: in new format, stripped codes are shorter versions of full codes
-  var isOldFormat = false;
-  if (bodyValues.length >= 2) {
-    // Compare body row 1 vs body row 2 — if row 1 looks like full codes
-    // (contains trailing letter suffixes) and row 2 is different, it's new format.
-    // If body row 1 and row 2 are the same type, check if body row 1 has
-    // non-numeric trailing chars stripped vs body row 2.
-    var sample1 = "";
-    var sample2 = "";
-    for (var c = 1; c < bodyValues[0].length; c++) {
-      if (bodyValues[0][c] !== "" && bodyValues[0][c] !== null) { sample1 = String(bodyValues[0][c]); break; }
-    }
-    for (var c = 1; c < bodyValues[1].length; c++) {
-      if (bodyValues[1][c] !== "" && bodyValues[1][c] !== null) { sample2 = String(bodyValues[1][c]); break; }
-    }
-    
-    if (sample1 && sample2) {
-      // If the first body row sample ends with a non-numeric character (like 'a','b'),
-      // it's a full code = old format (body starts with row 6, no row 5)
-      var lastChar = sample1.slice(-1);
-      if (isNaN(parseFloat(lastChar))) {
-        isOldFormat = true;
+  // Detect new-format archives (which include row 5 stripped codes as first body row)
+  // by checking if C1 has a date value (only new archives save I1 to C1)
+  var isNewFormat = (dateVal !== "" && dateVal !== null && dateVal !== undefined);
+  
+  // For new format, skip the first body row (stripped codes) — we'll regenerate it
+  var bodyToWrite = isNewFormat ? bodyValues.slice(1) : bodyValues;
+  var bodyRichToWrite = isNewFormat ? bodyRichText.slice(1) : bodyRichText;
+
+  // Write body to PPQ row 6 onward
+  if (bodyToWrite.length > 0) {
+    var richOut = [];
+    for (var i = 0; i < bodyToWrite.length; i++) {
+      var rowOut = [];
+      for (var c = 0; c < dataWidth; c++) {
+        rowOut.push(bodyRichToWrite[i][c] || SpreadsheetApp.newRichTextValue().setText(String(bodyToWrite[i][c] || "")).build());
       }
-    } else if (sample1 && !sample2) {
-      // Only one row of code-like data — could be old format with single-part questions
-      // Check if it looks like a full code
-      var lastChar = sample1.slice(-1);
-      if (isNaN(parseFloat(lastChar))) {
-        isOldFormat = true;
-      }
+      richOut.push(rowOut);
     }
+    ppq.getRange(6, 6, richOut.length, dataWidth).setRichTextValues(richOut);
   }
 
-  if (isOldFormat) {
-    // Old format: body starts at PPQ row 6 (skip row 5, then generate it)
-    var ppqWriteStartRow = 6;
-    
-    // Write body to PPQ (row 6 onward)
-    if (bodyValues.length > 0) {
-      var richOut = [];
-      for (var i = 0; i < bodyValues.length; i++) {
-        var rowOut = [];
-        for (var c = 0; c < dataWidth; c++) {
-          rowOut.push(bodyRichText[i][c] || SpreadsheetApp.newRichTextValue().setText(String(bodyValues[i][c] || "")).build());
-        }
-        richOut.push(rowOut);
+  // Generate row 5 (stripped core codes) from row 6 question codes
+  var row6Data = ppq.getRange(6, 7, 1, Math.max(1, dataWidth - 1)).getValues()[0];
+  var row5Out = [];
+  for (var c = 0; c < row6Data.length; c++) {
+    var code = String(row6Data[c]);
+    if (code && code !== "" && code !== "undefined") {
+      // Strip trailing non-numeric characters (same logic as returnFileID in testBuilder.js)
+      var stripped = code;
+      var cEnd = stripped.slice(-1);
+      while (isNaN(parseFloat(cEnd)) && !isFinite(cEnd) && stripped.length > 0) {
+        stripped = stripped.slice(0, -1);
+        cEnd = stripped.slice(-1);
       }
-      ppq.getRange(ppqWriteStartRow, 6, richOut.length, dataWidth).setRichTextValues(richOut);
+      row5Out.push(stripped);
+    } else {
+      row5Out.push("");
     }
-
-    // Generate row 5 (stripped codes) from row 6 data
-    var row6Data = ppq.getRange(6, 7, 1, dataWidth - 1).getValues()[0];
-    var row5Values = [];
-    for (var c = 0; c < row6Data.length; c++) {
-      var code = String(row6Data[c]);
-      if (code && code !== "" && code !== "undefined") {
-        // Strip trailing non-numeric characters (same logic as returnFileID)
-        var stripped = code;
-        var cEnd = stripped.slice(-1);
-        while (isNaN(parseFloat(cEnd)) && !isFinite(cEnd) && stripped.length > 0) {
-          stripped = stripped.slice(0, -1);
-          cEnd = stripped.slice(-1);
-        }
-        row5Values.push([stripped]);
-      } else {
-        row5Values.push([""]);
-      }
-    }
-    if (row5Values.length > 0) {
-      ppq.getRange(5, 7, 1, row5Values.length).setValues([row5Values.map(function(r) { return r[0]; })]);
-    }
-  } else {
-    // New format: body starts at PPQ row 5
-    var ppqWriteStartRow = 5;
-    
-    if (bodyValues.length > 0) {
-      var richOut = [];
-      for (var i = 0; i < bodyValues.length; i++) {
-        var rowOut = [];
-        for (var c = 0; c < dataWidth; c++) {
-          rowOut.push(bodyRichText[i][c] || SpreadsheetApp.newRichTextValue().setText(String(bodyValues[i][c] || "")).build());
-        }
-        richOut.push(rowOut);
-      }
-      ppq.getRange(ppqWriteStartRow, 6, richOut.length, dataWidth).setRichTextValues(richOut);
-    }
+  }
+  if (row5Out.length > 0) {
+    ppq.getRange(5, 7, 1, row5Out.length).setValues([row5Out]);
   }
 
   // 9. Set B1 (column counter) to the last populated column in row 6
