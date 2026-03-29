@@ -227,14 +227,24 @@ function restoreArchivedExam() {
     return;
   }
 
-  // 2. Fail if PPQselector already has exam data (check row 6, col F onward)
+  // 2. Check if PPQselector already has exam data (check row 6, col G onward — col G is where question data starts)
   var lastCol = ppq.getLastColumn();
-  if (lastCol >= 6) {
-    var existingData = ppq.getRange(6, 6, 1, lastCol - 5).getValues()[0];
+  if (lastCol >= 7) {
+    var existingData = ppq.getRange(6, 7, 1, lastCol - 6).getValues()[0];
     var hasData = existingData.some(function(c) { return c !== "" && c !== null; });
     if (hasData) {
-      ui.alert("❌ PPQselector already has exam data.\nClear the workspace first (🧹 Clear Workspace).");
-      return;
+      var response = ui.alert(
+        "⚠️ PPQselector has existing exam data",
+        "Would you like to clear the workspace and restore \"" + searchCode + "\"?",
+        ui.ButtonSet.YES_NO
+      );
+      if (response !== ui.Button.YES) {
+        return; // User cancelled
+      }
+      // Clear workspace (same logic as resetIteration)
+      ppq.getRange("G2:AZ2").clearContent();
+      ppq.getRange("G4:AZ50").clearContent();
+      ppq.getRange(1, 2).setValue(6); // Reset column counter
     }
   }
 
