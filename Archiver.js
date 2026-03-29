@@ -92,21 +92,16 @@ function archiveCurrentExam() {
   }
   archiveRows.push(row3); 
 
-  // Body (Src 5+, includes stripped codes row)
+  // Body (Src 5-40, ALL rows preserved for positional restore)
   for (var i = 4; i < scanRows; i++) { // i=4 is Row 5 (stripped codes)
     var rowVals = srcValues[i];
     var rowRich = srcRichText[i];
 
-    var hasData = rowVals.some(function(c) { return c !== "" && c !== null; });
-    var isHeader = (i <= 9); 
-    
-    if (isHeader || hasData) {
-      var newRow = [];
-      for (var k = 0; k < validWidth; k++) {
-        newRow.push(createCell(rowVals[k], rowRich[k]));
-      }
-      archiveRows.push(newRow);
+    var newRow = [];
+    for (var k = 0; k < validWidth; k++) {
+      newRow.push(createCell(rowVals[k], rowRich[k]));
     }
+    archiveRows.push(newRow);
   }
 
   // ==========================================
@@ -328,39 +323,33 @@ function restoreArchivedExam() {
     ppq.getRange("J1").setValue(timeVal);
   }
 
-  // 6. Parse archive row 2 → marks (write to PPQ row 2, starting at col F)
+  // 6. Parse archive row 2 → marks (write to PPQ row 2, col G+ only — skip col F label)
+  // Archive row 2: col A (index 0) = PPQ F2 (static label), cols B+ = per-question marks
   var marksRow = blockValues[1];
   var marksRich = blockRichText[1];
-  // Determine data width from marks row (skip col A which is total marks label)
+  // Find last non-empty column from cols B onward (archive index 1+)
   var dataWidth = 0;
   for (var c = 1; c < marksRow.length; c++) {
     if (marksRow[c] !== "" && marksRow[c] !== null) {
-      dataWidth = c + 1;
+      dataWidth = c; // last non-empty archive index
     }
   }
-  if (dataWidth < 2) dataWidth = 2; // at least col A + B
-
-  // Write marks: archive cols B onward → PPQ cols G onward (F=startCol, B=archive col 2)
-  // Archive row 2: col A = total marks or label, cols B+ = per-question marks
-  // PPQ row 2: col F = first data col (matches archive col A), cols G+ = per-question
   if (dataWidth > 0) {
     var marksRichOut = [];
     var rowOut = [];
-    for (var c = 0; c < dataWidth; c++) {
+    for (var c = 1; c <= dataWidth; c++) { // start from archive col B (index 1) → PPQ col G
       rowOut.push(marksRich[c] || SpreadsheetApp.newRichTextValue().setText(String(marksRow[c] || "")).build());
     }
     marksRichOut.push(rowOut);
-    ppq.getRange(2, 6, 1, dataWidth).setRichTextValues(marksRichOut);
+    ppq.getRange(2, 7, 1, dataWidth).setRichTextValues(marksRichOut); // col G = 7
   }
 
   // 7. Skip archive row 3 (Row 3 in PPQ never changes)
 
-  // 8. Parse body rows (archive rows 4+) → PPQ rows 6+
-  // The archive body contains rows 5-40 from PPQselector (row 5 = stripped codes,
-  // row 6 = question codes, row 7 = doc IDs, etc.). For old archives, row 5 was
-  // not included so the body starts directly with question codes.
-  // Strategy: always write to PPQ row 6 onward, then regenerate row 5 from row 6.
-  // This works for BOTH old and new archive formats.
+  // 8. Parse body rows (archive rows 4+) → PPQ rows
+  // Archive col A = PPQ col F (static labels like "parts", "syllabus codes", "marks")
+  // Archive col B = PPQ col G, col C = PPQ col H, etc.
+  // We write from col G only to preserve the formatted col F labels.
   var bodyStartIndex = 3; // 0-indexed: row 4 of block
   var bodyValues = [];
   var bodyRichText = [];
@@ -369,29 +358,48 @@ function restoreArchivedExam() {
     bodyRichText.push(blockRichText[i]);
   }
 
-  // Detect new-format archives (which include row 5 stripped codes as first body row)
-  // by checking if C1 has a date value (only new archives save I1 to C1)
+  // Detect new-format archives (include row 5 stripped codes + uncompressed body)
   var isNewFormat = (dateVal !== "" && dateVal !== null && dateVal !== undefined);
-  
-  // For new format, skip the first body row (stripped codes) — we'll regenerate it
-  var bodyToWrite = isNewFormat ? bodyValues.slice(1) : bodyValues;
-  var bodyRichToWrite = isNewFormat ? bodyRichText.slice(1) : bodyRichText;
+  // New uncompressed format has exactly 36 body rows (PPQ rows 5-40)
+  var isUncompressed = isNewFormat && bodyValues.length >= 36;
 
-  // Write body to PPQ row 6 onward
-  if (bodyToWrite.length > 0) {
-    var richOut = [];
-    for (var i = 0; i < bodyToWrite.length; i++) {
-      var rowOut = [];
-      for (var c = 0; c < dataWidth; c++) {
-        rowOut.push(bodyRichToWrite[i][c] || SpreadsheetApp.newRichTextValue().setText(String(bodyToWrite[i][c] || "")).build());
+  if (isUncompressed) {
+    // Positional restore: body[N] maps to PPQ row (5 + N)
+    // Write from col G only (archive col B = index 1 onward)
+    for (var i = 0; i < bodyValues.length; i++) {
+      var ppqRow = 5 + i; // body[0]=PPQ5, body[1]=PPQ6, etc.
+      if (ppqRow > 40) break;
+      // Check if this row has any data in cols B+ (PPQ col G+)
+      var hasRowData = false;
+      for (var c = 1; c <= dataWidth; c++) {
+        if (bodyValues[i][c] !== "" && bodyValues[i][c] !== null) { hasRowData = true; break; }
       }
-      richOut.push(rowOut);
+      if (!hasRowData) continue; // skip empty rows — preserve existing PPQ content
+      var rowOut = [];
+      for (var c = 1; c <= dataWidth; c++) { // archive col B (index 1) → PPQ col G
+        rowOut.push(bodyRichText[i][c] || SpreadsheetApp.newRichTextValue().setText(String(bodyValues[i][c] || "")).build());
+      }
+      ppq.getRange(ppqRow, 7, 1, dataWidth).setRichTextValues([rowOut]);
     }
-    ppq.getRange(6, 6, richOut.length, dataWidth).setRichTextValues(richOut);
+  } else {
+    // Compressed (old format): write sequentially from PPQ row 6, col G
+    var bodyToWrite = isNewFormat ? bodyValues.slice(1) : bodyValues;
+    var bodyRichToWrite = isNewFormat ? bodyRichText.slice(1) : bodyRichText;
+    if (bodyToWrite.length > 0) {
+      var richOut = [];
+      for (var i = 0; i < bodyToWrite.length; i++) {
+        var rowOut = [];
+        for (var c = 1; c <= dataWidth; c++) { // skip archive col A (PPQ col F)
+          rowOut.push(bodyRichToWrite[i][c] || SpreadsheetApp.newRichTextValue().setText(String(bodyToWrite[i][c] || "")).build());
+        }
+        richOut.push(rowOut);
+      }
+      ppq.getRange(6, 7, richOut.length, dataWidth).setRichTextValues(richOut);
+    }
   }
 
   // Generate row 5 (stripped core codes) from row 6 question codes
-  var row6Data = ppq.getRange(6, 7, 1, Math.max(1, dataWidth - 1)).getValues()[0];
+  var row6Data = ppq.getRange(6, 7, 1, Math.max(1, dataWidth)).getValues()[0];
   var row5Out = [];
   for (var c = 0; c < row6Data.length; c++) {
     var code = String(row6Data[c]);
@@ -413,11 +421,11 @@ function restoreArchivedExam() {
   }
 
   // 9. Set B1 (column counter) to the last populated column in row 6
-  var row6Check = ppq.getRange(6, 6, 1, Math.max(1, ppq.getLastColumn() - 5)).getValues()[0];
-  var lastDataCol = 5; // default to col E (before F)
+  var row6Check = ppq.getRange(6, 7, 1, Math.max(1, ppq.getLastColumn() - 6)).getValues()[0];
+  var lastDataCol = 6; // default to col F (before G)
   for (var c = row6Check.length - 1; c >= 0; c--) {
     if (row6Check[c] !== "" && row6Check[c] !== null) {
-      lastDataCol = c + 6; // convert back to 1-indexed column
+      lastDataCol = c + 7; // convert back to 1-indexed column (col G = 7)
       break;
     }
   }
