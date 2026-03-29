@@ -789,6 +789,7 @@ function onOpen() {
       .addItem('📄 Update Cover Page', 'editCoverPage')
       .addSeparator()
       .addItem('📦 Archive to History', 'archiveCurrentExam')
+      .addItem('📥 Restore Archived Exam', 'restoreArchivedExam')
       .addSeparator()
       .addItem('♻️ Reset Builder Form', 'resetBuilder')
       .addItem('🧨 Nuke Everything', 'clearAll'))

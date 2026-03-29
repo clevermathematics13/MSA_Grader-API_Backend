@@ -220,6 +220,11 @@ function buildMarkSchemePDF(folder) {
                     inlineImg.setHeight(h);
                   }
                 }
+                // Preserve any hyperlink attached to the image
+                var linkUrl = img.getLinkUrl();
+                if (linkUrl) {
+                  inlineImg.setLinkUrl(linkUrl);
+                }
               }
             }
             // Copy paragraph attributes, then force center alignment
