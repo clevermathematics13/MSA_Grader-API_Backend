@@ -794,6 +794,18 @@ function onOpen() {
       .addItem('♻️ Reset Builder Form', 'resetBuilder')
       .addItem('🧨 Nuke Everything', 'clearAll'))
 
+    // Submenu: Database sync tools
+    .addSubMenu(ui.createMenu('🗄️ Database Tools')
+      .addItem('📋 Dump Sheet Schemas', 'dumpAllSheetSchemas')
+      .addSeparator()
+      .addItem('🔗 Test DB Connection', 'testSupabaseConnection')
+      .addItem('🔄 Sync Questions to DB', 'syncQuestionsToSupabase')
+      .addItem('🔄 Sync Exams to DB', 'syncExamsToSupabase')
+      .addItem('🔄 Sync Students to DB', 'syncStudentsToSupabase')
+      .addItem('🔄 Sync All to DB', 'syncAllToSupabase')
+      .addSeparator()
+      .addItem('✅ Verify DB Sync', 'verifySupabaseSync'))
+
     .addToUi();
 }
 
