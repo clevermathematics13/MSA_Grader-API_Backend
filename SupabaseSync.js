@@ -94,35 +94,114 @@ function testSupabaseConnection() {
 // ── Schema Discovery ────────────────────────────────────────────
 
 /**
- * Scans all sheets in the active + external spreadsheets,
- * dumps headers and sample rows to a "SchemaExport" sheet.
+ * Helper: write rows to SchemaExport sheet (append mode).
+ * @param {Array<Array>} outputRows
+ * @param {boolean} [clearFirst] - if true, clear sheet before writing
  */
-function dumpAllSheetSchemas() {
+function writeToSchemaExport_(outputRows, clearFirst) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ui = SpreadsheetApp.getUi();
-
-  // Create or clear the output sheet
   var out = ss.getSheetByName("SchemaExport");
-  if (out) {
-    out.clear();
-  } else {
+  if (!out) {
     out = ss.insertSheet("SchemaExport");
+    clearFirst = false; // brand new sheet, no need to clear
+  }
+  if (clearFirst) out.clear();
+
+  // Find first empty row to append
+  var startRow = clearFirst ? 1 : (out.getLastRow() + 1);
+
+  if (outputRows.length === 0) return;
+
+  // Cap columns to 26 to avoid huge sparse writes on wide sheets
+  var maxCols = 1;
+  for (var r = 0; r < outputRows.length; r++) {
+    if (outputRows[r].length > maxCols) maxCols = outputRows[r].length;
+  }
+  maxCols = Math.min(maxCols, 26);
+
+  for (var r2 = 0; r2 < outputRows.length; r2++) {
+    // Truncate wide rows, pad short rows
+    if (outputRows[r2].length > maxCols) outputRows[r2] = outputRows[r2].slice(0, maxCols);
+    while (outputRows[r2].length < maxCols) outputRows[r2].push("");
+  }
+  out.getRange(startRow, 1, outputRows.length, maxCols).setValues(outputRows);
+}
+
+/**
+ * Fast dump of one sheet: name, dimensions, and first 3 rows (capped to 26 cols).
+ * Skips expensive getMergedRanges() to stay within GAS time limits.
+ * @param {Sheet} sheet
+ * @returns {Array<Array>}
+ */
+function dumpOneSheet_(sheet) {
+  var rows = [];
+  var name = sheet.getName();
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+
+  rows.push([]);
+  rows.push(["  SHEET: " + name,
+    "Rows: " + lastRow,
+    "Cols: " + lastCol,
+    "Frozen: " + sheet.getFrozenRows() + "R/" + sheet.getFrozenColumns() + "C"]);
+
+  if (lastRow === 0 || lastCol === 0) {
+    rows.push(["    (empty sheet)"]);
+    return rows;
   }
 
+  // Read only first 3 rows, capped at 26 columns for speed
+  var readRows = Math.min(lastRow, 3);
+  var readCols = Math.min(lastCol, 26);
+  var data = sheet.getRange(1, 1, readRows, readCols).getDisplayValues();
+
+  for (var r = 0; r < data.length; r++) {
+    var label = "    Row " + (r + 1) + ": ";
+    rows.push([label].concat(data[r]));
+  }
+
+  if (lastRow > 3) rows.push(["    ... " + (lastRow - 3) + " more rows"]);
+  if (lastCol > 26) rows.push(["    ... " + (lastCol - 26) + " more columns (truncated at Z)"]);
+
+  return rows;
+}
+
+/**
+ * Step 1: Dump LOCAL sheets only (the active spreadsheet).
+ * Clears SchemaExport and writes fresh data.
+ */
+function dumpLocalSheetSchemas() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
   var outputRows = [];
   outputRows.push(["=== SCHEMA EXPORT ===", "Generated: " + new Date().toISOString()]);
   outputRows.push([]);
-
-  // 1) Active spreadsheet tabs
   outputRows.push(["── ACTIVE SPREADSHEET: " + ss.getName() + " ──"]);
+
   var sheets = ss.getSheets();
+  var count = 0;
   for (var i = 0; i < sheets.length; i++) {
-    var sheet = sheets[i];
-    if (sheet.getName() === "SchemaExport") continue;
-    outputRows = outputRows.concat(dumpOneSheet_(sheet));
+    if (sheets[i].getName() === "SchemaExport") continue;
+    outputRows = outputRows.concat(dumpOneSheet_(sheets[i]));
+    count++;
   }
 
-  // 2) External spreadsheets
+  writeToSchemaExport_(outputRows, true);
+  ui.alert("✅ Local Schemas Done",
+    "Dumped " + count + " local sheets to 'SchemaExport'.\n\n" +
+    "Now run 'Dump External Schemas' to add external spreadsheets.",
+    ui.ButtonSet.OK);
+}
+
+/**
+ * Step 2: Dump EXTERNAL spreadsheets (appends to SchemaExport).
+ */
+function dumpExternalSheetSchemas() {
+  var ui = SpreadsheetApp.getUi();
+  var outputRows = [];
+  outputRows.push([]);
+  outputRows.push(["── EXTERNAL SPREADSHEETS ──"]);
+
   var externals = [
     { id: "1fc7cWtM83oxQ8rMIX8F_sgjN1xCkLpqdbeTzIG33kPU", label: "Question Metadata / Database" },
     { id: "1bQoToVwjbszmmsoQNmPrpNpb0dT3ZNJTBM6sS49slXU", label: "Student Source" },
@@ -131,7 +210,7 @@ function dumpAllSheetSchemas() {
 
   for (var e = 0; e < externals.length; e++) {
     outputRows.push([]);
-    outputRows.push(["── EXTERNAL: " + externals[e].label + " (" + externals[e].id + ") ──"]);
+    outputRows.push(["  ── " + externals[e].label + " (" + externals[e].id + ") ──"]);
     try {
       var extSS = SpreadsheetApp.openById(externals[e].id);
       var extSheets = extSS.getSheets();
@@ -139,16 +218,16 @@ function dumpAllSheetSchemas() {
         outputRows = outputRows.concat(dumpOneSheet_(extSheets[j]));
       }
     } catch (err) {
-      outputRows.push(["  ERROR opening: " + err.message]);
+      outputRows.push(["    ERROR: " + err.message]);
     }
   }
 
-  // 3) Check for auto-created OCR spreadsheets in Script Properties
+  // Also check auto-created OCR spreadsheets
   var props = PropertiesService.getScriptProperties();
   var ocrId = props.getProperty("OCR_CORRECTIONS_SHEET_ID");
   if (ocrId) {
     outputRows.push([]);
-    outputRows.push(["── EXTERNAL: OCR Corrections (" + ocrId + ") ──"]);
+    outputRows.push(["  ── OCR Corrections (" + ocrId + ") ──"]);
     try {
       var ocrSS = SpreadsheetApp.openById(ocrId);
       var ocrSheets = ocrSS.getSheets();
@@ -156,102 +235,38 @@ function dumpAllSheetSchemas() {
         outputRows = outputRows.concat(dumpOneSheet_(ocrSheets[k]));
       }
     } catch (err) {
-      outputRows.push(["  ERROR opening: " + err.message]);
+      outputRows.push(["    ERROR: " + err.message]);
     }
   }
 
-  var studentProfileId = props.getProperty("STUDENT_OCR_PROFILES_SHEET_ID");
-  if (studentProfileId) {
+  var spId = props.getProperty("STUDENT_OCR_PROFILES_SHEET_ID");
+  if (spId) {
     outputRows.push([]);
-    outputRows.push(["── EXTERNAL: Student OCR Profiles (" + studentProfileId + ") ──"]);
+    outputRows.push(["  ── Student OCR Profiles (" + spId + ") ──"]);
     try {
-      var spSS = SpreadsheetApp.openById(studentProfileId);
+      var spSS = SpreadsheetApp.openById(spId);
       var spSheets = spSS.getSheets();
       for (var m = 0; m < spSheets.length; m++) {
         outputRows = outputRows.concat(dumpOneSheet_(spSheets[m]));
       }
     } catch (err) {
-      outputRows.push(["  ERROR opening: " + err.message]);
+      outputRows.push(["    ERROR: " + err.message]);
     }
   }
 
-  // Write to SchemaExport sheet
-  if (outputRows.length > 0) {
-    // Pad rows to same width
-    var maxCols = 1;
-    for (var r = 0; r < outputRows.length; r++) {
-      if (outputRows[r].length > maxCols) maxCols = outputRows[r].length;
-    }
-    for (var r2 = 0; r2 < outputRows.length; r2++) {
-      while (outputRows[r2].length < maxCols) outputRows[r2].push("");
-    }
-    out.getRange(1, 1, outputRows.length, maxCols).setValues(outputRows);
-  }
-
-  // Auto-resize first column
-  out.autoResizeColumn(1);
-
-  ui.alert("✅ Schema Export Complete",
-    "Dumped " + sheets.length + " local sheets + " + externals.length + " external spreadsheets.\n\n" +
-    "Check the 'SchemaExport' tab.",
+  writeToSchemaExport_(outputRows, false);
+  ui.alert("✅ External Schemas Done",
+    "Appended external spreadsheet schemas to 'SchemaExport'.",
     ui.ButtonSet.OK);
 }
 
 /**
- * Dumps one sheet's structure: name, dimensions, frozen rows/cols,
- * header row, merge info, and 3 sample data rows.
- * @param {Sheet} sheet
- * @returns {Array<Array>} rows to append to output
+ * Combined: runs both local + external (kept for backward compat).
+ * May time out on large workbooks — use the split functions instead.
  */
-function dumpOneSheet_(sheet) {
-  var rows = [];
-  var name = sheet.getName();
-  var lastRow = sheet.getLastRow();
-  var lastCol = sheet.getLastColumn();
-  var frozenRows = sheet.getFrozenRows();
-  var frozenCols = sheet.getFrozenColumns();
-
-  rows.push([]);
-  rows.push(["  SHEET: " + name,
-    "Rows: " + lastRow,
-    "Cols: " + lastCol,
-    "Frozen: " + frozenRows + "R/" + frozenCols + "C"]);
-
-  if (lastRow === 0 || lastCol === 0) {
-    rows.push(["    (empty sheet)"]);
-    return rows;
-  }
-
-  // Read up to 5 rows of data (headers + samples)
-  var readRows = Math.min(lastRow, 5);
-  var data = sheet.getRange(1, 1, readRows, lastCol).getDisplayValues();
-
-  for (var r = 0; r < data.length; r++) {
-    var label = (r === 0) ? "    Row 1 (header): " : "    Row " + (r + 1) + ": ";
-    rows.push([label].concat(data[r]));
-  }
-
-  // Check for merged ranges in first 5 rows (important for zone logic)
-  try {
-    var merges = sheet.getRange(1, 1, Math.min(lastRow, 5), lastCol).getMergedRanges();
-    if (merges.length > 0) {
-      var mergeInfo = [];
-      for (var m = 0; m < Math.min(merges.length, 10); m++) {
-        mergeInfo.push(merges[m].getA1Notation());
-      }
-      rows.push(["    Merges (first 5 rows): " + mergeInfo.join(", ")]);
-      if (merges.length > 10) rows.push(["    ... and " + (merges.length - 10) + " more merges"]);
-    }
-  } catch (e) {
-    // getMergedRanges can fail on some protected sheets
-  }
-
-  // If sheet has more rows, show a count
-  if (lastRow > 5) {
-    rows.push(["    ... " + (lastRow - 5) + " more rows"]);
-  }
-
-  return rows;
+function dumpAllSheetSchemas() {
+  dumpLocalSheetSchemas();
+  dumpExternalSheetSchemas();
 }
 
 // ── Question Sync ───────────────────────────────────────────────

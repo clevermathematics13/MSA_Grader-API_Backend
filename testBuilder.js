@@ -796,7 +796,8 @@ function onOpen() {
 
     // Submenu: Database sync tools
     .addSubMenu(ui.createMenu('🗄️ Database Tools')
-      .addItem('📋 Dump Sheet Schemas', 'dumpAllSheetSchemas')
+      .addItem('📋 Dump Local Schemas', 'dumpLocalSheetSchemas')
+      .addItem('📋 Dump External Schemas', 'dumpExternalSheetSchemas')
       .addSeparator()
       .addItem('🔗 Test DB Connection', 'testSupabaseConnection')
       .addItem('🔄 Sync Questions to DB', 'syncQuestionsToSupabase')
