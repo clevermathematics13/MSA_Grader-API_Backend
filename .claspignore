@@ -26,6 +26,7 @@
 !MSA_Testing.js
 !PPQselector.js
 !SL chooser.js
+!SupabaseSync.js
 # Never push Node tooling into Apps Script
 node_modules/
 package.json
