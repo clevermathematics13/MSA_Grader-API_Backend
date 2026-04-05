@@ -420,8 +420,13 @@ function stampStudentData(deck, name, studentId, qCodes, qrBlobArray) {
   var qrX = (PAGE_WIDTH - qrSize) / 2; 
   var qrY = PAGE_HEIGHT - qrSize - 30; 
 
-  // Replace placeholder name on cover (set by master's updateCoverSlide)
-  deck.replaceAllText("{StudentName}", name);
+  // Draw student name directly on cover slide
+  var coverSlide = slides[0];
+  var nameShape = coverSlide.insertShape(SlidesApp.ShapeType.TEXT_BOX, 360, 193, 200, 25);
+  var nt = nameShape.getText();
+  nt.setText(name);
+  nt.getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+  nt.getTextStyle().setFontSize(11).setFontFamily("Arial").setBold(false);
   
   for (var s = 1; s < slides.length; s++) {
     var qIndex = (SLIDE_QUESTION_MAP.length > 0) ? SLIDE_QUESTION_MAP[s - 1] : (s - 1);
@@ -723,7 +728,7 @@ function updateCoverSlide(deck, studentName) {
   var longInstructions = "Full marks are not necessarily awarded for a correct answer with no working. Answers must be supported by working and/or explanations. Solutions found from a graphic display calculator should be supported by suitable working. For example, if graphs are used to find a solution, you should sketch these as part of your answer. Where an answer is incorrect, some marks may be given for a correct method, provided this is shown by written working. You are therefore advised to show all working.";
   deck.replaceAllText("{Instructions}", longInstructions);
   
-  drawStudentHeader(deck.getSlides()[0], studentName || "{StudentName}");
+  drawStudentHeader(deck.getSlides()[0], studentName || "");
 }
 
 function drawStudentHeader(slide, studentName) {

@@ -718,8 +718,212 @@ function verifySupabaseSync() {
     var eqResult = supabaseRequest_("GET", "exam_questions", null, "select=exam_id&limit=10000");
     lines.push("Exam-Question links in DB: " + (eqResult ? eqResult.length : 0));
 
+    // Box coordinates count
+    var bcResult = supabaseRequest_("GET", "box_coordinates", null, "select=id&limit=10000");
+    lines.push("Box Coordinates in DB: " + (bcResult ? bcResult.length : 0));
+
+    // Grades count
+    var gResult = supabaseRequest_("GET", "grades", null, "select=id&limit=10000");
+    lines.push("Grades in DB: " + (gResult ? gResult.length : 0));
+
     ui.alert("📊 Supabase Data Summary", lines.join("\n"), ui.ButtonSet.OK);
   } catch (e) {
     ui.alert("❌ Verify Failed", e.message, ui.ButtonSet.OK);
+  }
+}
+
+// ── Box Coordinates Sync ────────────────────────────────────────
+
+/**
+ * Reads box coordinates from the Audit Sheet (BoxCoordinates tab)
+ * and upserts them to the Supabase `box_coordinates` table.
+ *
+ * Audit Sheet ID is defined in createTestAndMS.js as DATABASE_SS_ID.
+ */
+function syncBoxCoordinatesToSupabase() {
+  var ui = SpreadsheetApp.getUi();
+  var AUDIT_SS_ID = "1fc7cWtM83oxQ8rMIX8F_sgjN1xCkLpqdbeTzIG33kPU";
+
+  try {
+    var dbSS = SpreadsheetApp.openById(AUDIT_SS_ID);
+    var sheet = dbSS.getSheetByName("BoxCoordinates");
+    if (!sheet) {
+      ui.alert("⚠️ No BoxCoordinates tab found in the Audit Sheet.", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      ui.alert("⚠️ BoxCoordinates tab is empty (no data rows).", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    // Header: ExamName, QuestionCode, Position, X_Pct, Y_Pct, Width_Pct, Height_Pct, X_Pts, Y_Pts, Width_Pts, Height_Pts, Timestamp
+    var data = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
+    var rows = [];
+
+    for (var i = 0; i < data.length; i++) {
+      var examCode = data[i][0] ? data[i][0].toString().trim() : "";
+      var questionCode = data[i][1] ? data[i][1].toString().trim() : "";
+      if (!examCode || !questionCode) continue;
+
+      rows.push({
+        exam_code: examCode,
+        question_code: questionCode,
+        position: data[i][2] ? data[i][2].toString().trim() : null,
+        x_pct: parseFloat(data[i][3]) || 0,
+        y_pct: parseFloat(data[i][4]) || 0,
+        width_pct: parseFloat(data[i][5]) || 0,
+        height_pct: parseFloat(data[i][6]) || 0,
+        x_pts: parseFloat(data[i][7]) || 0,
+        y_pts: parseFloat(data[i][8]) || 0,
+        width_pts: parseFloat(data[i][9]) || 0,
+        height_pts: parseFloat(data[i][10]) || 0
+      });
+    }
+
+    if (rows.length === 0) {
+      ui.alert("⚠️ No valid box coordinate rows found.", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    // Upsert in batches of 500
+    var batchSize = 500;
+    var total = 0;
+    for (var i = 0; i < rows.length; i += batchSize) {
+      var batch = rows.slice(i, i + batchSize);
+      supabaseUpsert_("box_coordinates", batch, "exam_code,question_code");
+      total += batch.length;
+    }
+
+    ui.alert("Box Coordinates Sync Complete",
+      "✅ Synced " + total + " box coordinate(s) to Supabase.",
+      ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert("❌ Box Coordinates Sync Failed", e.message, ui.ButtonSet.OK);
+  }
+}
+
+// ── Grades Sync ─────────────────────────────────────────────────
+
+/**
+ * Reads grading data from The Exam Portal (MASTER_DATABASE_ID) for
+ * a specific exam and upserts it to the Supabase `grades` table.
+ *
+ * The grade tab layout (written by exportToGradebook):
+ *   Row 1: Exam name
+ *   Row 2: "", "Total", marks_per_question...
+ *   Row 3: "Email", "Name", question_labels...
+ *   Row 4+: student_email, student_name, marks...
+ *
+ * Prompts for which exam tab to sync (or syncs the current PPQselector exam).
+ */
+function syncGradesToSupabase() {
+  var ui = SpreadsheetApp.getUi();
+  var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+
+  try {
+    // Determine exam name from PPQselector
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ppq = ss.getSheetByName("PPQselector");
+    var defaultExam = ppq ? ppq.getRange("G1").getDisplayValue().trim() : "";
+
+    var response = ui.prompt("Sync Grades to Supabase",
+      "Enter the exam name to sync (must match a tab in The Exam Portal).\n\n" +
+      "Current PPQselector exam: " + (defaultExam || "(none)"),
+      ui.ButtonSet.OK_CANCEL);
+
+    if (response.getSelectedButton() !== ui.Button.OK) return;
+    var examName = response.getResponseText().trim() || defaultExam;
+    if (!examName) {
+      ui.alert("⚠️ No exam name provided.", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    // Open the grade tab in The Exam Portal
+    var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+    var cleanSheetName = examName.replace(/ \[/, "_").replace(/\] /, "_").replace(/ /g, "_");
+    var gradeSheet = masterSS.getSheetByName(cleanSheetName);
+
+    if (!gradeSheet) {
+      ui.alert("⚠️ Grade tab '" + cleanSheetName + "' not found in The Exam Portal.\n\n" +
+        "Run 'Export to Gradebook' first, then try again.", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    var lastRow = gradeSheet.getLastRow();
+    var lastCol = gradeSheet.getLastColumn();
+    if (lastRow < 4 || lastCol < 3) {
+      ui.alert("⚠️ Grade tab has no student data (need rows 4+ with at least 3 columns).", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    // Read header rows
+    var row2 = gradeSheet.getRange(2, 1, 1, lastCol).getValues()[0]; // totals
+    var row3 = gradeSheet.getRange(3, 1, 1, lastCol).getValues()[0]; // Email, Name, Q labels
+
+    // Read question codes from PPQselector row 6 if available, else use labels from row 3
+    var qCodes = [];
+    if (ppq) {
+      var ppqLastCol = ppq.getLastColumn();
+      if (ppqLastCol >= 7) {
+        qCodes = ppq.getRange(6, 7, 1, ppqLastCol - 6).getDisplayValues()[0]
+          .filter(function(c) { return c && c.trim(); });
+      }
+    }
+
+    // Columns C onward (index 2+) are question columns
+    var numQuestions = lastCol - 2;
+    if (numQuestions <= 0) {
+      ui.alert("⚠️ No question columns found in grade tab.", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    // Read student data (row 4 onward)
+    var studentData = gradeSheet.getRange(4, 1, lastRow - 3, lastCol).getValues();
+    var grades = [];
+
+    for (var i = 0; i < studentData.length; i++) {
+      var email = studentData[i][0] ? studentData[i][0].toString().trim() : "";
+      if (!email) continue;
+
+      for (var q = 0; q < numQuestions; q++) {
+        var marksAwarded = studentData[i][q + 2];
+        // Skip empty cells (not yet graded)
+        if (marksAwarded === "" || marksAwarded === null || marksAwarded === undefined) continue;
+
+        var questionCode = (q < qCodes.length && qCodes[q]) ? qCodes[q].trim() : (row3[q + 2] || "Q" + (q + 1)).toString().trim();
+        var marksPossible = parseFloat(row2[q + 2]) || null;
+
+        grades.push({
+          exam_code: examName,
+          student_email: email,
+          question_code: questionCode,
+          marks_awarded: parseFloat(marksAwarded) || 0,
+          marks_possible: marksPossible,
+          grader_type: "human"
+        });
+      }
+    }
+
+    if (grades.length === 0) {
+      ui.alert("⚠️ No grade data found (all cells empty). Grade students first, then sync.", "", ui.ButtonSet.OK);
+      return;
+    }
+
+    // Upsert in batches of 500
+    var batchSize = 500;
+    var total = 0;
+    for (var i = 0; i < grades.length; i += batchSize) {
+      var batch = grades.slice(i, i + batchSize);
+      supabaseUpsert_("grades", batch, "exam_code,student_email,question_code");
+      total += batch.length;
+    }
+
+    ui.alert("Grades Sync Complete",
+      "✅ Synced " + total + " grade(s) for exam '" + examName + "' to Supabase.",
+      ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert("❌ Grades Sync Failed", e.message, ui.ButtonSet.OK);
   }
 }

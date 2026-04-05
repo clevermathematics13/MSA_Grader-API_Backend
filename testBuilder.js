@@ -805,6 +805,9 @@ function onOpen() {
       .addItem('🔄 Sync Students to DB', 'syncStudentsToSupabase')
       .addItem('🔄 Sync All to DB', 'syncAllToSupabase')
       .addSeparator()
+      .addItem('📐 Sync Box Coords to DB', 'syncBoxCoordinatesToSupabase')
+      .addItem('📊 Sync Grades to DB', 'syncGradesToSupabase')
+      .addSeparator()
       .addItem('✅ Verify DB Sync', 'verifySupabaseSync'))
 
     .addToUi();
