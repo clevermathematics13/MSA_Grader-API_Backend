@@ -979,53 +979,92 @@ function exportToGradebook() {
   if (!gradeSheet) {
     gradeSheet = masterSS.insertSheet(cleanSheetName);
   } else {
-    // Clear existing content below headers
-    if (gradeSheet.getLastRow() > 5) {
-      gradeSheet.getRange(6, 1, gradeSheet.getLastRow() - 5, gradeSheet.getLastColumn()).clearContent();
-    }
+    // Clear entire sheet on re-run (column count may change)
+    gradeSheet.clear();
   }
   
-  // Read PPQselector data
-  var qCodes = getRowDataClean(6);   // Row 6: question codes
-  var qMarks = getRowDataClean(2);   // Row 2: total marks per question
-  var qLabels = getRowDataClean(3);  // Row 3: question labels
-  var qSyllabus = getRowDataClean(4); // Row 4: syllabus codes
-  
-  if (qCodes.length === 0) {
-    SpreadsheetApp.getUi().alert("❌ No questions found in PPQselector row 6.");
+  // Read PPQselector dimensions
+  var lastCol = ppq.getLastColumn();
+  if (lastCol < 7) {
+    SpreadsheetApp.getUi().alert("❌ No questions found in PPQselector.");
+    return;
+  }
+  var numQuestions = lastCol - 6; // columns G onward
+
+  // Read question-level data
+  var qLabelsRow = ppq.getRange(3, 7, 1, numQuestions).getValues()[0];  // Row 3: question labels
+  var qCodesRow = ppq.getRange(6, 7, 1, numQuestions).getValues()[0];   // Row 6: main codes
+
+  // Read part-level data stored vertically per question column:
+  //   Rows 9-16:  part codes (up to 8 parts per question)
+  //   Rows 17-24: syllabus codes per part
+  //   Rows 25-32: marks per part
+  var MAX_PARTS = 8;
+  var partCodesBlock = ppq.getRange(9, 7, MAX_PARTS, numQuestions).getValues();
+  var syllabusBlock = ppq.getRange(17, 7, MAX_PARTS, numQuestions).getValues();
+  var marksBlock = ppq.getRange(25, 7, MAX_PARTS, numQuestions).getValues();
+
+  // Flatten: one column per question PART (matching legacy K04 format)
+  var flatLabels = [];
+  var flatCodes = [];
+  var flatMarks = [];
+  var flatSyllabus = [];
+
+  for (var q = 0; q < numQuestions; q++) {
+    var label = qLabelsRow[q] ? qLabelsRow[q].toString() : (q + 1).toString();
+
+    // Collect non-empty parts for this question
+    var partCodes = [];
+    var partSyllabus = [];
+    var partMarks = [];
+    for (var p = 0; p < MAX_PARTS; p++) {
+      var code = partCodesBlock[p][q];
+      if (code !== "" && code !== null && code !== undefined) {
+        partCodes.push(code.toString());
+        partSyllabus.push((syllabusBlock[p][q] !== "" && syllabusBlock[p][q] !== null) ? syllabusBlock[p][q].toString() : "");
+        partMarks.push((marksBlock[p][q] !== "" && marksBlock[p][q] !== null) ? marksBlock[p][q] : "");
+      }
+    }
+
+    if (partCodes.length <= 1) {
+      // Single-part question: one column
+      flatLabels.push(label);
+      flatCodes.push(partCodes[0] || (qCodesRow[q] ? qCodesRow[q].toString() : ""));
+      flatMarks.push(partMarks[0] || ppq.getRange(2, 7 + q).getValue() || "");
+      flatSyllabus.push(partSyllabus[0] || "");
+    } else {
+      // Multi-part question: expand into columns with letter suffixes (6a, 6b, 6c...)
+      for (var p = 0; p < partCodes.length; p++) {
+        var letter = String.fromCharCode(97 + p); // a, b, c, d, ...
+        flatLabels.push(label + letter);
+        flatCodes.push(partCodes[p]);
+        flatMarks.push(partMarks[p]);
+        flatSyllabus.push(partSyllabus[p]);
+      }
+    }
+  }
+
+  if (flatLabels.length === 0) {
+    SpreadsheetApp.getUi().alert("❌ No question data found in PPQselector.");
     return;
   }
 
   // Build header rows (5-row legacy format)
-  // Row 1: "Label (Student)" + question labels (1, 2, 3, 6a, 6b...)
   var row1 = ["Label (Student)", ""];
-  for (var i = 0; i < qLabels.length; i++) {
-    row1.push(qLabels[i] || (i + 1));
+  var row2 = ["Bank Code (System)", ""];
+  var row3 = ["Max Points", ""];
+  var row4 = ["Syllabus Code", ""];
+  for (var i = 0; i < flatLabels.length; i++) {
+    row1.push(flatLabels[i]);
+    row2.push(flatCodes[i]);
+    row3.push(flatMarks[i]);
+    row4.push(flatSyllabus[i]);
   }
   gradeSheet.getRange(1, 1, 1, row1.length).setValues([row1]);
-  
-  // Row 2: "Bank Code (System)" + full IB question codes
-  var row2 = ["Bank Code (System)", ""];
-  for (var i = 0; i < qCodes.length; i++) {
-    row2.push(qCodes[i]);
-  }
   gradeSheet.getRange(2, 1, 1, row2.length).setValues([row2]);
-  
-  // Row 3: "Max Points" + marks per question
-  var row3 = ["Max Points", ""];
-  for (var i = 0; i < qMarks.length; i++) {
-    row3.push(qMarks[i]);
-  }
   gradeSheet.getRange(3, 1, 1, row3.length).setValues([row3]);
-  
-  // Row 4: "Syllabus Code" + syllabus codes
-  var row4 = ["Syllabus Code", ""];
-  for (var i = 0; i < qSyllabus.length; i++) {
-    row4.push(qSyllabus[i]);
-  }
-  while (row4.length < qCodes.length + 2) { row4.push(""); }
   gradeSheet.getRange(4, 1, 1, row4.length).setValues([row4]);
-  
+
   // Row 5: "Email", "Name" headers
   gradeSheet.getRange(5, 1).setValue("Email");
   gradeSheet.getRange(5, 2).setValue("Name");
@@ -1040,7 +1079,7 @@ function exportToGradebook() {
     }
   }
   
-  SpreadsheetApp.getActiveSpreadsheet().toast("✅ Gradebook exported: " + cleanSheetName, "Success", 5);
+  SpreadsheetApp.getActiveSpreadsheet().toast("✅ Gradebook exported: " + cleanSheetName + " (" + flatLabels.length + " part columns)", "Success", 5);
 }
 
 /**
