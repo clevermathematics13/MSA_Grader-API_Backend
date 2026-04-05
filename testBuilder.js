@@ -1011,6 +1011,17 @@ function exportToGradebook() {
   var flatSyllabus = [];
 
   for (var q = 0; q < numQuestions; q++) {
+    // Skip empty columns (no code in row 6 AND no parts in rows 9-16)
+    var hasMainCode = (qCodesRow[q] !== "" && qCodesRow[q] !== null && qCodesRow[q] !== undefined);
+    var hasAnyPart = false;
+    for (var p = 0; p < MAX_PARTS; p++) {
+      if (partCodesBlock[p][q] !== "" && partCodesBlock[p][q] !== null && partCodesBlock[p][q] !== undefined) {
+        hasAnyPart = true;
+        break;
+      }
+    }
+    if (!hasMainCode && !hasAnyPart) continue;
+
     var label = qLabelsRow[q] ? qLabelsRow[q].toString() : (q + 1).toString();
 
     // Collect non-empty parts for this question
@@ -1030,7 +1041,7 @@ function exportToGradebook() {
       // Single-part question: one column
       flatLabels.push(label);
       flatCodes.push(partCodes[0] || (qCodesRow[q] ? qCodesRow[q].toString() : ""));
-      flatMarks.push(partMarks[0] || ppq.getRange(2, 7 + q).getValue() || "");
+      flatMarks.push(partMarks[0] !== undefined && partMarks[0] !== "" ? partMarks[0] : (ppq.getRange(2, 7 + q).getValue() || ""));
       flatSyllabus.push(partSyllabus[0] || "");
     } else {
       // Multi-part question: expand into columns with letter suffixes (6a, 6b, 6c...)
@@ -1038,7 +1049,7 @@ function exportToGradebook() {
         var letter = String.fromCharCode(97 + p); // a, b, c, d, ...
         flatLabels.push(label + letter);
         flatCodes.push(partCodes[p]);
-        flatMarks.push(partMarks[p]);
+        flatMarks.push(partMarks[p] !== undefined && partMarks[p] !== "" ? partMarks[p] : "");
         flatSyllabus.push(partSyllabus[p]);
       }
     }
