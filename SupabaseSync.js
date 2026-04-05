@@ -483,6 +483,29 @@ function syncExamsToSupabase() {
     return;
   }
 
+  // Deduplicate exams by exam_code (current PPQ takes priority over archive)
+  var seenExams = {};
+  var uniqueExams = [];
+  for (var i = 0; i < exams.length; i++) {
+    if (!seenExams[exams[i].exam_code]) {
+      seenExams[exams[i].exam_code] = true;
+      uniqueExams.push(exams[i]);
+    }
+  }
+  exams = uniqueExams;
+
+  // Deduplicate exam_questions
+  var seenEQ = {};
+  var uniqueEQ = [];
+  for (var i = 0; i < examQuestions.length; i++) {
+    var eqKey = examQuestions[i].exam_code + "|" + examQuestions[i].question_code;
+    if (!seenEQ[eqKey]) {
+      seenEQ[eqKey] = true;
+      uniqueEQ.push(examQuestions[i]);
+    }
+  }
+  examQuestions = uniqueEQ;
+
   // Upsert exams
   supabaseUpsert_("exams", exams, "exam_code");
 
