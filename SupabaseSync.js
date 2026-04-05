@@ -853,23 +853,23 @@ function syncGradesToSupabase() {
 
     var lastRow = gradeSheet.getLastRow();
     var lastCol = gradeSheet.getLastColumn();
-    if (lastRow < 4 || lastCol < 3) {
-      ui.alert("⚠️ Grade tab has no student data (need rows 4+ with at least 3 columns).", "", ui.ButtonSet.OK);
+    if (lastRow < 6 || lastCol < 3) {
+      ui.alert("⚠️ Grade tab has no student data (need rows 6+ with at least 3 columns).", "", ui.ButtonSet.OK);
       return;
     }
 
-    // Read header rows
-    var row2 = gradeSheet.getRange(2, 1, 1, lastCol).getValues()[0]; // totals
-    var row3 = gradeSheet.getRange(3, 1, 1, lastCol).getValues()[0]; // Email, Name, Q labels
+    // Read header rows (5-row legacy format)
+    // Row 2: Bank Code (System) — full IB question codes
+    var row2 = gradeSheet.getRange(2, 1, 1, lastCol).getValues()[0];
+    // Row 3: Max Points — marks per question
+    var row3 = gradeSheet.getRange(3, 1, 1, lastCol).getValues()[0];
 
-    // Read question codes from PPQselector row 6 if available, else use labels from row 3
+    // Get question codes from row 2 (Bank Code) of the grade tab itself
     var qCodes = [];
-    if (ppq) {
-      var ppqLastCol = ppq.getLastColumn();
-      if (ppqLastCol >= 7) {
-        qCodes = ppq.getRange(6, 7, 1, ppqLastCol - 6).getDisplayValues()[0]
-          .filter(function(c) { return c && c.trim(); });
-      }
+    for (var c = 2; c < lastCol; c++) {
+      var code = row2[c] ? row2[c].toString().trim() : "";
+      if (code) qCodes.push(code);
+      else qCodes.push("");
     }
 
     // Columns C onward (index 2+) are question columns
@@ -879,8 +879,8 @@ function syncGradesToSupabase() {
       return;
     }
 
-    // Read student data (row 4 onward)
-    var studentData = gradeSheet.getRange(4, 1, lastRow - 3, lastCol).getValues();
+    // Read student data (row 6 onward)
+    var studentData = gradeSheet.getRange(6, 1, lastRow - 5, lastCol).getValues();
     var grades = [];
 
     for (var i = 0; i < studentData.length; i++) {
@@ -892,8 +892,8 @@ function syncGradesToSupabase() {
         // Skip empty cells (not yet graded)
         if (marksAwarded === "" || marksAwarded === null || marksAwarded === undefined) continue;
 
-        var questionCode = (q < qCodes.length && qCodes[q]) ? qCodes[q].trim() : (row3[q + 2] || "Q" + (q + 1)).toString().trim();
-        var marksPossible = parseFloat(row2[q + 2]) || null;
+        var questionCode = (q < qCodes.length && qCodes[q]) ? qCodes[q] : "Q" + (q + 1);
+        var marksPossible = parseFloat(row3[q + 2]) || null;
 
         grades.push({
           exam_code: examName,

@@ -980,8 +980,8 @@ function exportToGradebook() {
     gradeSheet = masterSS.insertSheet(cleanSheetName);
   } else {
     // Clear existing content below headers
-    if (gradeSheet.getLastRow() > 3) {
-      gradeSheet.getRange(4, 1, gradeSheet.getLastRow() - 3, gradeSheet.getLastColumn()).clearContent();
+    if (gradeSheet.getLastRow() > 5) {
+      gradeSheet.getRange(6, 1, gradeSheet.getLastRow() - 5, gradeSheet.getLastColumn()).clearContent();
     }
   }
   
@@ -989,37 +989,54 @@ function exportToGradebook() {
   var qCodes = getRowDataClean(6);   // Row 6: question codes
   var qMarks = getRowDataClean(2);   // Row 2: total marks per question
   var qLabels = getRowDataClean(3);  // Row 3: question labels
+  var qSyllabus = getRowDataClean(4); // Row 4: syllabus codes
   
   if (qCodes.length === 0) {
     SpreadsheetApp.getUi().alert("❌ No questions found in PPQselector row 6.");
     return;
   }
 
-  // Build header rows
-  // Row 1: Test name
-  gradeSheet.getRange(1, 1).setValue(testNameVal);
+  // Build header rows (5-row legacy format)
+  // Row 1: "Label (Student)" + question labels (1, 2, 3, 6a, 6b...)
+  var row1 = ["Label (Student)", ""];
+  for (var i = 0; i < qLabels.length; i++) {
+    row1.push(qLabels[i] || (i + 1));
+  }
+  gradeSheet.getRange(1, 1, 1, row1.length).setValues([row1]);
   
-  // Row 2: "Total" label + total marks per question
-  var row2 = ["", "Total"];
-  for (var i = 0; i < qMarks.length; i++) {
-    row2.push(qMarks[i]);
+  // Row 2: "Bank Code (System)" + full IB question codes
+  var row2 = ["Bank Code (System)", ""];
+  for (var i = 0; i < qCodes.length; i++) {
+    row2.push(qCodes[i]);
   }
   gradeSheet.getRange(2, 1, 1, row2.length).setValues([row2]);
   
-  // Row 3: "Email", "Name", then question labels or codes
-  var row3 = ["Email", "Name"];
-  for (var i = 0; i < qCodes.length; i++) {
-    row3.push(qLabels[i] || qCodes[i]);
+  // Row 3: "Max Points" + marks per question
+  var row3 = ["Max Points", ""];
+  for (var i = 0; i < qMarks.length; i++) {
+    row3.push(qMarks[i]);
   }
   gradeSheet.getRange(3, 1, 1, row3.length).setValues([row3]);
   
-  // Row 4+: Pull student list
+  // Row 4: "Syllabus Code" + syllabus codes
+  var row4 = ["Syllabus Code", ""];
+  for (var i = 0; i < qSyllabus.length; i++) {
+    row4.push(qSyllabus[i]);
+  }
+  while (row4.length < qCodes.length + 2) { row4.push(""); }
+  gradeSheet.getRange(4, 1, 1, row4.length).setValues([row4]);
+  
+  // Row 5: "Email", "Name" headers
+  gradeSheet.getRange(5, 1).setValue("Email");
+  gradeSheet.getRange(5, 2).setValue("Name");
+  
+  // Row 6+: Pull student list
   var studentSheet = masterSS.getSheetByName("Students");
   if (studentSheet && studentSheet.getLastRow() > 1) {
     var students = studentSheet.getRange(2, 1, studentSheet.getLastRow() - 1, 2).getValues();
     var studentRows = students.filter(function(r) { return r[0] !== ""; });
     if (studentRows.length > 0) {
-      gradeSheet.getRange(4, 1, studentRows.length, 2).setValues(studentRows);
+      gradeSheet.getRange(6, 1, studentRows.length, 2).setValues(studentRows);
     }
   }
   
