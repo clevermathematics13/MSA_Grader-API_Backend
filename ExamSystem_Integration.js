@@ -8,6 +8,7 @@
 /**
  * Modified doGet to serve either the old or new UI
  * Add ?ui=exam to URL to load the new Exam Management UI
+ * Add ?ui=report to URL for student self-report
  * Default (no params) shows the Exam Management UI
  */
 function doGet(e) {
@@ -22,6 +23,15 @@ function doGet(e) {
     return HtmlService.createHtmlOutputFromFile('Index')
       .setTitle('MSA Validation & Repair')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+
+  // ?ui=report — Student self-report page (replaces Google Forms)
+  if (params.ui === 'report') {
+    Logger.log('Serving Student Report UI');
+    return HtmlService.createHtmlOutputFromFile('StudentReport')
+      .setTitle('Marks Self-Report')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
   
   // Default to Exam Management UI (the new one without banner)

@@ -808,7 +808,9 @@ function onOpen() {
       .addItem('📐 Sync Box Coords to DB', 'syncBoxCoordinatesToSupabase')
       .addItem('📊 Sync Grades to DB', 'syncGradesToSupabase')
       .addSeparator()
-      .addItem('✅ Verify DB Sync', 'verifySupabaseSync'))
+      .addItem('✅ Verify DB Sync', 'verifySupabaseSync')
+      .addSeparator()
+      .addItem('📝 Get Student Report Link', 'showStudentReportLink'))
 
     .addToUi();
 }

@@ -927,3 +927,168 @@ function syncGradesToSupabase() {
     ui.alert("❌ Grades Sync Failed", e.message, ui.ButtonSet.OK);
   }
 }
+
+// ── Student Self-Report (Replaces Google Forms) ─────────────────
+
+/**
+ * Fetches exam part data for the student self-report UI.
+ * Called from StudentReport.html via google.script.run.
+ *
+ * Reads from The Exam Portal (MASTER_DATABASE_ID) grade tab:
+ *   Row 1: labels (1a, 1b, 2, 3a...)
+ *   Row 2: bank codes
+ *   Row 3: max points
+ *   Row 4: syllabus codes
+ *
+ * @param {string} examCode - The exam name (e.g. "27AH K05 [SL] P2")
+ * @returns {Object} { examCode, parts: [{label, code, maxMarks}], error? }
+ */
+function getExamPartsForStudentReport(examCode) {
+  try {
+    if (!examCode) return { error: "No exam code provided." };
+
+    var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+    var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+    var cleanSheetName = examCode.replace(/ \[/, "_").replace(/\] /, "_").replace(/ /g, "_");
+    var gradeSheet = masterSS.getSheetByName(cleanSheetName);
+
+    if (!gradeSheet) return { error: "Exam '" + examCode + "' not found. Ask your teacher." };
+
+    var lastCol = gradeSheet.getLastColumn();
+    if (lastCol < 3) return { error: "Exam has no questions configured." };
+
+    var row1 = gradeSheet.getRange(1, 1, 1, lastCol).getValues()[0]; // labels
+    var row3 = gradeSheet.getRange(3, 1, 1, lastCol).getValues()[0]; // max points
+
+    var parts = [];
+    for (var c = 2; c < lastCol; c++) {
+      var label = row1[c] ? row1[c].toString() : "";
+      var maxMarks = row3[c];
+      if (!label) continue;
+      parts.push({
+        label: label,
+        maxMarks: (maxMarks !== "" && maxMarks !== null) ? parseFloat(maxMarks) : null
+      });
+    }
+
+    if (parts.length === 0) return { error: "No question parts found for this exam." };
+
+    return { examCode: examCode, parts: parts };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Submits a student's self-reported marks to Supabase.
+ * Called from StudentReport.html via google.script.run.
+ *
+ * @param {Object} submission - { examCode, studentEmail, marks: [{label, value}] }
+ * @returns {Object} { success, count, error? }
+ */
+function submitStudentMarks(submission) {
+  try {
+    if (!submission || !submission.examCode || !submission.studentEmail || !submission.marks) {
+      return { error: "Missing required fields." };
+    }
+
+    var email = submission.studentEmail.toString().trim().toLowerCase();
+    if (!email || email.indexOf("@") === -1) {
+      return { error: "Please enter a valid email address." };
+    }
+
+    var rows = [];
+    for (var i = 0; i < submission.marks.length; i++) {
+      var m = submission.marks[i];
+      var val = parseFloat(m.value);
+      if (isNaN(val) || val < 0) continue; // skip blank/invalid
+
+      rows.push({
+        exam_code: submission.examCode,
+        student_email: email,
+        question_label: m.label,
+        marks_reported: val
+      });
+    }
+
+    if (rows.length === 0) {
+      return { error: "No valid marks entered." };
+    }
+
+    // Check for existing submission — prevent duplicates
+    var existing = supabaseRequest_("GET", "student_responses", null,
+      "exam_code=eq." + encodeURIComponent(submission.examCode) +
+      "&student_email=eq." + encodeURIComponent(email) +
+      "&select=id&limit=1");
+
+    if (existing && existing.length > 0) {
+      return { error: "You have already submitted marks for this exam. Contact your teacher if you need to re-submit." };
+    }
+
+    // Insert (not upsert — one submission per student per exam)
+    supabaseRequest_("POST", "student_responses", rows);
+
+    return { success: true, count: rows.length };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Gets a list of active exams available for student self-reporting.
+ * Reads from the Students sheet in The Exam Portal.
+ *
+ * @returns {Object} { exams: [{code, name}], error? }
+ */
+function getActiveExamsForReport() {
+  try {
+    var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+    var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+    var studentSheet = masterSS.getSheetByName("Students");
+    if (!studentSheet) return { exams: [] };
+
+    var lastRow = studentSheet.getLastRow();
+    if (lastRow < 2) return { exams: [] };
+
+    // Column H = exam name, Column K = status
+    var data = studentSheet.getRange(2, 8, lastRow - 1, 4).getValues();
+    var exams = [];
+
+    for (var i = 0; i < data.length; i++) {
+      var name = data[i][0] ? data[i][0].toString().trim() : "";
+      var status = data[i][3] ? data[i][3].toString().trim() : "";
+      if (name && status.indexOf("Active") !== -1) {
+        exams.push({ code: name, name: name });
+      }
+    }
+
+    return { exams: exams };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Shows the student self-report URL for the current exam.
+ * Menu action: Database Tools → Get Student Report Link
+ */
+function showStudentReportLink() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ppq = ss.getSheetByName("PPQselector");
+  var examName = ppq ? ppq.getRange("G1").getDisplayValue().trim() : "";
+
+  if (!examName) {
+    ui.alert("⚠️ No exam name in G1. Build an exam first.");
+    return;
+  }
+
+  var webAppUrl = ScriptApp.getService().getUrl();
+  var reportUrl = webAppUrl + "?ui=report&exam=" + encodeURIComponent(examName);
+
+  ui.alert("📝 Student Report Link",
+    "Share this URL with students to self-report their marks:\n\n" +
+    reportUrl + "\n\n" +
+    "Exam: " + examName,
+    ui.ButtonSet.OK);
+}
