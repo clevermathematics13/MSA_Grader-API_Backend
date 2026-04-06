@@ -1081,6 +1081,8 @@ function getActiveExamsForReport() {
     for (var i = 0; i < data.length; i++) {
       var name = data[i][0] ? data[i][0].toString().trim() : "";
       var status = data[i][3] ? data[i][3].toString().trim() : "";
+      // Skip exams whose name starts with * (blocked by instructor)
+      if (name && name.charAt(0) === '*') continue;
       if (name && status.indexOf("Active") !== -1 && !seen[name]) {
         seen[name] = true;
         exams.push({ code: name, name: name });
@@ -1158,6 +1160,8 @@ function getStudentAlias(studentEmail) {
     }
     // Hardcoded fallback for known student alias
     if (studentEmail === "pcleveng@amersol.edu.pe") {
+      // Ensure this student exists in the Supabase students table
+      supabaseUpsert_("students", [{ email: "pcleveng@amersol.edu.pe", name: "P. Cleveng" }], "email");
       return { email: studentEmail, name: "P. Cleveng", verified: true };
     }
     return { error: "Student " + studentEmail + " not found in the system." };
