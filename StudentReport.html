@@ -269,15 +269,11 @@
             if (!result.verified) {
               showStatus('step1Status', 'error',
                 'Your account (' + loggedInEmail + ') is not registered as a student.<br>' +
-                'Please log in with your school account. If you believe this is an error, contact <a href="mailto:ithelpdesk@amersol.edu.pe">ithelpdesk@amersol.edu.pe</a>.' +
-                '<br><button class="btn btn-secondary" onclick="logoutAndReload()">Log in as another user</button>'
+                'Please log in with your school account. If you forgot your school account password, contact <a href="mailto:ithelpdesk@amersol.edu.pe">ithelpdesk@amersol.edu.pe</a>.' +
+                '<br><button class="btn btn-secondary" style="margin-top:12px;" onclick="logoutAndReload()">Log in as another user</button>'
               );
               return;
             }
-      // Log out and reload for another user
-      function logoutAndReload() {
-        window.location.href = 'https://accounts.google.com/Logout?continue=' + encodeURIComponent(window.location.href);
-      }
 
             // Show authenticated UI
             var displayName = loggedInName ? loggedInName + ' (' + loggedInEmail + ')' : loggedInEmail;
@@ -505,6 +501,12 @@
         var div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+      }
+
+      // Log out of current Google account and re-authenticate
+      function logoutAndReload() {
+        var appUrl = window.location.href.split('#')[0];
+        window.top.location.href = 'https://accounts.google.com/Logout?continue=' + encodeURIComponent(appUrl);
       }
 
       // ── View Results Functions ──────────────────────────────
