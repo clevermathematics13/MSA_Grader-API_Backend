@@ -42,6 +42,15 @@ function doGet(e) {
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
+
+  // ?ui=grading — Instructor grading UI
+  if (params.ui === 'grading') {
+    Logger.log('Serving Grading UI');
+    return HtmlService.createHtmlOutputFromFile('GradingUI')
+      .setTitle('Grade Entry')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   
   // Default to Exam Management UI (the new one without banner)
   Logger.log('Serving Exam Management UI');

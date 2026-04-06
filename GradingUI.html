@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh; padding: 16px;
+      }
+      .container {
+        background: white; border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        overflow: hidden; max-width: 100%;
+      }
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white; padding: 18px 24px; display: flex;
+        align-items: center; justify-content: space-between;
+      }
+      .header h1 { font-size: 1.4em; font-weight: 300; }
+      .header .save-status { font-size: 13px; opacity: 0.85; }
+
+      .toolbar {
+        padding: 14px 24px; border-bottom: 1px solid #e0e0e0;
+        display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        background: #f8f9fa;
+      }
+      .toolbar select {
+        padding: 8px 12px; border: 2px solid #e0e0e0; border-radius: 6px;
+        font-size: 14px; min-width: 200px;
+      }
+      .toolbar select:focus { border-color: #667eea; outline: none; }
+      .toolbar .btn {
+        padding: 8px 16px; border: none; border-radius: 6px;
+        font-size: 14px; font-weight: 600; cursor: pointer;
+      }
+      .btn-back {
+        background: transparent; color: #667eea; border: 2px solid #667eea !important;
+      }
+      .btn-back:hover { background: #f0f4ff; }
+
+      .grid-wrap {
+        overflow: auto; max-height: calc(100vh - 160px); padding: 0;
+      }
+      table.grade-grid {
+        border-collapse: collapse; width: 100%; font-size: 13px;
+      }
+      table.grade-grid th, table.grade-grid td {
+        border: 1px solid #e8e8e8; padding: 0; text-align: center;
+        white-space: nowrap;
+      }
+      table.grade-grid thead th {
+        background: #f0f2f5; position: sticky; top: 0; z-index: 2;
+        padding: 8px 6px; font-size: 12px; color: #555;
+        font-weight: 700; letter-spacing: 0.3px;
+      }
+      table.grade-grid thead th.corner {
+        position: sticky; left: 0; z-index: 3; background: #e8eaf0;
+      }
+      table.grade-grid thead th.max-row {
+        background: #e8eaf0; font-weight: 600; color: #888; font-size: 11px;
+      }
+      table.grade-grid thead th.max-row.corner { z-index: 3; }
+
+      table.grade-grid tbody td.student-cell {
+        position: sticky; left: 0; z-index: 1; background: white;
+        text-align: left; padding: 4px 8px; font-weight: 600; color: #333;
+        min-width: 140px; max-width: 200px; border-right: 2px solid #d0d0d0;
+      }
+      table.grade-grid tbody tr:nth-child(even) td.student-cell { background: #fafbfc; }
+      table.grade-grid tbody tr:hover td.student-cell { background: #f0f4ff; }
+      table.grade-grid tbody tr:hover td { background: #f8f9ff; }
+
+      table.grade-grid td.grade-cell {
+        padding: 0; min-width: 52px;
+      }
+      table.grade-grid td.grade-cell input {
+        width: 100%; border: none; text-align: center; font-size: 13px;
+        padding: 6px 4px; background: transparent; outline: none;
+        font-family: inherit;
+      }
+      table.grade-grid td.grade-cell input:focus {
+        background: #fffbe6; box-shadow: inset 0 0 0 2px #667eea;
+      }
+      table.grade-grid td.grade-cell.saving { background: #fff9db; }
+      table.grade-grid td.grade-cell.saved { background: #f0fff4; transition: background 0.3s; }
+      table.grade-grid td.grade-cell.save-error { background: #fff5f5; }
+      table.grade-grid td.grade-cell.over-max input { color: #e74c3c; font-weight: 700; }
+
+      table.grade-grid td.total-cell {
+        font-weight: 700; color: #667eea; background: #f8f9fa;
+        padding: 6px 4px; min-width: 50px;
+      }
+      table.grade-grid th.total-header {
+        background: #e8eaf0; border-left: 2px solid #d0d0d0;
+      }
+      table.grade-grid td.total-cell { border-left: 2px solid #d0d0d0; }
+
+      .loading { text-align: center; padding: 60px 20px; color: #888; font-size: 16px; }
+      .spinner { display: inline-block; width: 30px; height: 30px; border: 3px solid #e0e0e0;
+        border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      .status { text-align: center; padding: 16px; margin: 12px 24px; border-radius: 8px; display: none; }
+      .status.error { display: block; background: #fff5f5; color: #c0392b; border: 1px solid #f5c6cb; }
+      .status.info { display: block; background: #f0f4ff; color: #667eea; border: 1px solid #c3d1ff; }
+
+      .student-name { font-size: 12px; color: #888; font-weight: 400; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>📝 Grade Entry</h1>
+        <div class="save-status" id="saveStatus">Auto-saves on each cell</div>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <button class="btn btn-back" onclick="goBack()">← Back</button>
+        <select id="examSelect" onchange="loadExam()">
+          <option value="">-- Select an Exam --</option>
+        </select>
+        <span id="examInfo" style="font-size:13px;color:#888;"></span>
+      </div>
+
+      <div id="statusMsg" class="status"></div>
+
+      <div id="loadingArea" class="loading" style="display:none;">
+        <div class="spinner"></div><br>Loading grades...
+      </div>
+
+      <div class="grid-wrap" id="gridWrap" style="display:none;">
+        <table class="grade-grid" id="gradeTable">
+          <thead id="gradeHead"></thead>
+          <tbody id="gradeBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      var examData = null; // { questions, students, sheetName }
+      var pendingSaves = 0;
+      var saveQueue = []; // queue for sequential saves
+
+      (function init() {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (result.error) {
+              showStatus('error', result.error);
+              return;
+            }
+            var sel = document.getElementById('examSelect');
+            (result.exams || []).forEach(function(name) {
+              var opt = document.createElement('option');
+              opt.value = name;
+              opt.textContent = name;
+              sel.appendChild(opt);
+            });
+          })
+          .withFailureHandler(function(err) {
+            showStatus('error', 'Failed to load exams: ' + err.message);
+          })
+          .getExamSheetsForGrading();
+      })();
+
+      function loadExam() {
+        var sheetName = document.getElementById('examSelect').value;
+        if (!sheetName) return;
+
+        document.getElementById('gridWrap').style.display = 'none';
+        document.getElementById('loadingArea').style.display = 'block';
+        hideStatus();
+        document.getElementById('examInfo').textContent = '';
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById('loadingArea').style.display = 'none';
+            if (result.error) {
+              showStatus('error', result.error);
+              return;
+            }
+            examData = result;
+            renderGrid(result);
+            document.getElementById('gridWrap').style.display = 'block';
+            document.getElementById('examInfo').textContent =
+              result.students.length + ' students · ' + result.questions.length + ' questions';
+          })
+          .withFailureHandler(function(err) {
+            document.getElementById('loadingArea').style.display = 'none';
+            showStatus('error', 'Failed to load: ' + err.message);
+          })
+          .loadGradingData(sheetName);
+      }
+
+      function renderGrid(data) {
+        var questions = data.questions;
+        var students = data.students;
+
+        // Build header rows
+        var headHtml = '<tr><th class="corner" rowspan="2">Student</th>';
+        questions.forEach(function(q) {
+          headHtml += '<th>' + esc(q.label) + '</th>';
+        });
+        headHtml += '<th class="total-header" rowspan="2">Total</th></tr>';
+
+        // Max marks row
+        headHtml += '<tr>';
+        questions.forEach(function(q) {
+          headHtml += '<th class="max-row">/ ' + (q.maxMarks !== null ? q.maxMarks : '?') + '</th>';
+        });
+        headHtml += '</tr>';
+
+        document.getElementById('gradeHead').innerHTML = headHtml;
+
+        // Build student rows
+        var bodyHtml = '';
+        students.forEach(function(s, sIdx) {
+          bodyHtml += '<tr>';
+          bodyHtml += '<td class="student-cell">' + esc(s.name || s.email) +
+            '<br><span class="student-name">' + esc(s.email) + '</span></td>';
+
+          var total = 0;
+          questions.forEach(function(q, qIdx) {
+            var val = s.grades[q.label];
+            var displayVal = (val !== '' && val !== null && val !== undefined) ? val : '';
+            if (displayVal !== '' && !isNaN(parseFloat(displayVal))) total += parseFloat(displayVal);
+
+            var overMax = (q.maxMarks !== null && displayVal !== '' && parseFloat(displayVal) > q.maxMarks);
+
+            bodyHtml += '<td class="grade-cell' + (overMax ? ' over-max' : '') + '" id="cell_' + sIdx + '_' + qIdx + '">' +
+              '<input type="number" step="any" min="0"' +
+              (q.maxMarks !== null ? ' max="' + q.maxMarks + '"' : '') +
+              ' value="' + displayVal + '"' +
+              ' data-row="' + s.row + '"' +
+              ' data-col="' + q.col + '"' +
+              ' data-sidx="' + sIdx + '"' +
+              ' data-qidx="' + qIdx + '"' +
+              ' data-max="' + (q.maxMarks !== null ? q.maxMarks : '') + '"' +
+              ' data-orig="' + displayVal + '"' +
+              ' onblur="onCellBlur(this)"' +
+              ' onkeydown="onCellKey(event, this)"' +
+              ' oninput="onCellInput(this)"' +
+              '></td>';
+          });
+
+          var maxTotal = 0;
+          questions.forEach(function(q) { if (q.maxMarks !== null) maxTotal += q.maxMarks; });
+          bodyHtml += '<td class="total-cell" id="total_' + sIdx + '">' + total + ' / ' + maxTotal + '</td>';
+          bodyHtml += '</tr>';
+        });
+
+        document.getElementById('gradeBody').innerHTML = bodyHtml;
+      }
+
+      function onCellInput(input) {
+        var max = input.dataset.max;
+        var val = parseFloat(input.value);
+        var cell = input.parentElement;
+        if (max !== '' && !isNaN(val) && val > parseFloat(max)) {
+          cell.classList.add('over-max');
+        } else {
+          cell.classList.remove('over-max');
+        }
+        // Update row total in real time
+        updateRowTotal(parseInt(input.dataset.sidx));
+      }
+
+      function onCellKey(e, input) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          // Move to next row same column
+          var sIdx = parseInt(input.dataset.sidx);
+          var qIdx = parseInt(input.dataset.qidx);
+          var nextCell = document.getElementById('cell_' + (sIdx + 1) + '_' + qIdx);
+          if (nextCell) {
+            nextCell.querySelector('input').focus();
+          }
+          input.blur();
+        } else if (e.key === 'Tab') {
+          // Default tab behavior works
+        }
+      }
+
+      function onCellBlur(input) {
+        var origVal = input.dataset.orig;
+        var newVal = input.value.trim();
+
+        // Only save if value changed
+        if (newVal === origVal) return;
+
+        var sheetRow = parseInt(input.dataset.row);
+        var sheetCol = parseInt(input.dataset.col) + 1; // questions col is 0-indexed, sheet is 1-indexed
+        var sIdx = parseInt(input.dataset.sidx);
+        var qIdx = parseInt(input.dataset.qidx);
+        var cell = document.getElementById('cell_' + sIdx + '_' + qIdx);
+
+        // Mark saving
+        cell.className = 'grade-cell saving';
+        updateSaveStatus(1);
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            updateSaveStatus(-1);
+            if (result.error) {
+              cell.className = 'grade-cell save-error';
+              cell.title = result.error;
+              return;
+            }
+            // Mark saved
+            input.dataset.orig = newVal;
+            cell.className = 'grade-cell saved';
+            setTimeout(function() {
+              cell.className = 'grade-cell';
+              cell.title = '';
+            }, 1500);
+
+            updateRowTotal(sIdx);
+          })
+          .withFailureHandler(function(err) {
+            updateSaveStatus(-1);
+            cell.className = 'grade-cell save-error';
+            cell.title = 'Save failed: ' + err.message;
+          })
+          .saveGradeCell(examData.sheetName, sheetRow, sheetCol, newVal === '' ? '' : parseFloat(newVal));
+      }
+
+      function updateRowTotal(sIdx) {
+        if (!examData) return;
+        var total = 0;
+        var maxTotal = 0;
+        examData.questions.forEach(function(q, qIdx) {
+          var cellEl = document.getElementById('cell_' + sIdx + '_' + qIdx);
+          if (cellEl) {
+            var inp = cellEl.querySelector('input');
+            var v = parseFloat(inp.value);
+            if (!isNaN(v)) total += v;
+          }
+          if (q.maxMarks !== null) maxTotal += q.maxMarks;
+        });
+        var totalEl = document.getElementById('total_' + sIdx);
+        if (totalEl) totalEl.textContent = total + ' / ' + maxTotal;
+      }
+
+      function updateSaveStatus(delta) {
+        pendingSaves += delta;
+        var el = document.getElementById('saveStatus');
+        if (pendingSaves > 0) {
+          el.textContent = 'Saving... (' + pendingSaves + ' pending)';
+          el.style.opacity = '1';
+        } else {
+          el.textContent = '✓ All saved';
+          el.style.opacity = '0.85';
+          setTimeout(function() {
+            if (pendingSaves === 0) el.textContent = 'Auto-saves on each cell';
+          }, 2000);
+        }
+      }
+
+      function goBack() {
+        google.script.run
+          .withSuccessHandler(function(url) {
+            window.top.location.href = url + '?ui=report';
+          })
+          .withFailureHandler(function() {
+            history.back();
+          })
+          .getAppUrl();
+      }
+
+      function showStatus(type, msg) {
+        var el = document.getElementById('statusMsg');
+        el.className = 'status ' + type;
+        el.textContent = msg;
+        el.style.display = 'block';
+      }
+      function hideStatus() {
+        var el = document.getElementById('statusMsg');
+        el.style.display = 'none';
+        el.className = 'status';
+      }
+
+      function esc(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+    </script>
+  </body>
+</html>

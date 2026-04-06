@@ -149,6 +149,9 @@
                 <div style="font-weight:600;color:#667eea;margin-bottom:8px;">🎓 Instructor Mode</div>
                 <div class="btn-row">
                   <button class="btn btn-primary" onclick="goToExamUI()">Exam Management</button>
+                  <button class="btn btn-primary" onclick="goToGrading()" style="background:linear-gradient(135deg,#27ae60,#2ecc71);">Grade Entry</button>
+                </div>
+                <div class="btn-row" style="margin-top:10px;">
                   <button class="btn btn-secondary" id="switchToStudentBtn" onclick="switchToStudent()">View as Student</button>
                 </div>
               </div>
@@ -536,6 +539,17 @@
         google.script.run
           .withSuccessHandler(function(url) {
             window.top.location.href = url;
+          })
+          .withFailureHandler(function() {
+            showStatus('step1Status', 'error', 'Could not get app URL.');
+          })
+          .getAppUrl();
+      }
+
+      function goToGrading() {
+        google.script.run
+          .withSuccessHandler(function(url) {
+            window.top.location.href = url + '?ui=grading';
           })
           .withFailureHandler(function() {
             showStatus('step1Status', 'error', 'Could not get app URL.');

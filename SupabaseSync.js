@@ -1491,3 +1491,126 @@ function deactivateExamForReporting() {
     ui.alert("✅ '" + examToClose + "' deactivated (" + closed + " row(s) updated).");
   }
 }
+
+// ── Grading UI Backend ──────────────────────────────────────────
+
+/**
+ * Returns all exam sheet names from the Master DB for the grading dropdown.
+ * Only returns sheets that look like exam sheets (have student data).
+ */
+function getExamSheetsForGrading() {
+  try {
+    var callerEmail = Session.getActiveUser().getEmail().trim().toLowerCase();
+    if (!isInstructor_(callerEmail)) return { error: "Unauthorized" };
+
+    var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+    var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+    var sheets = masterSS.getSheets();
+    var exams = [];
+
+    for (var i = 0; i < sheets.length; i++) {
+      var name = sheets[i].getName();
+      // Skip known non-exam sheets
+      if (name === "Students" || name === "Debug_Log" || name === "PPQselector") continue;
+      // Check it has the expected structure (row 1 col A = "Label (Student)")
+      var cell = sheets[i].getRange(1, 1).getValue();
+      if (cell && cell.toString().indexOf("Label") !== -1) {
+        exams.push(name);
+      }
+    }
+
+    return { exams: exams };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Loads the full grading grid for an exam: questions, students, and grades.
+ */
+function loadGradingData(sheetName) {
+  try {
+    var callerEmail = Session.getActiveUser().getEmail().trim().toLowerCase();
+    if (!isInstructor_(callerEmail)) return { error: "Unauthorized" };
+
+    var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+    var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+    var sheet = masterSS.getSheetByName(sheetName);
+    if (!sheet) return { error: "Sheet '" + sheetName + "' not found." };
+
+    var lastCol = sheet.getLastColumn();
+    var lastRow = sheet.getLastRow();
+    if (lastCol < 3 || lastRow < 6) return { error: "Sheet has insufficient data." };
+
+    // Read all data at once for performance
+    var allData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+    // Row 1 = question labels, Row 3 = max marks
+    var questions = [];
+    for (var c = 2; c < lastCol; c++) {
+      var label = allData[0][c] ? allData[0][c].toString() : "";
+      if (!label) continue;
+      var maxMarks = allData[2][c];
+      questions.push({
+        col: c,
+        label: label,
+        maxMarks: (maxMarks !== "" && maxMarks !== null) ? parseFloat(maxMarks) : null
+      });
+    }
+
+    // Row 6+ = students (row index 5+)
+    var students = [];
+    for (var r = 5; r < lastRow; r++) {
+      var email = allData[r][0] ? allData[r][0].toString().trim() : "";
+      var name = allData[r][1] ? allData[r][1].toString().trim() : "";
+      if (!email) continue;
+
+      var grades = {};
+      for (var q = 0; q < questions.length; q++) {
+        var val = allData[r][questions[q].col];
+        grades[questions[q].label] = (val !== "" && val !== null && val !== undefined) ? val : "";
+      }
+
+      students.push({
+        row: r + 1, // 1-indexed sheet row
+        email: email,
+        name: name,
+        grades: grades
+      });
+    }
+
+    return { questions: questions, students: students, sheetName: sheetName };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Saves a single grade cell to the sheet. Called on blur from the grading UI.
+ * @param {string} sheetName
+ * @param {number} row - 1-indexed sheet row
+ * @param {number} col - 0-indexed column from questions array
+ * @param {*} value - The grade value
+ */
+function saveGradeCell(sheetName, row, col, value) {
+  try {
+    var callerEmail = Session.getActiveUser().getEmail().trim().toLowerCase();
+    if (!isInstructor_(callerEmail)) return { error: "Unauthorized" };
+
+    var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+    var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+    var sheet = masterSS.getSheetByName(sheetName);
+    if (!sheet) return { error: "Sheet not found." };
+
+    // col is the 0-indexed column from the questions array — need to add 1 for 1-indexed sheet
+    var cellCol = col + 1;
+    var numVal = (value === "" || value === null) ? "" : parseFloat(value);
+    if (value !== "" && isNaN(numVal)) numVal = value; // allow non-numeric if needed
+
+    sheet.getRange(row, cellCol).setValue(numVal);
+
+    return { success: true, row: row, col: cellCol, value: numVal };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
