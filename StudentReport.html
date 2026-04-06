@@ -505,8 +505,17 @@
 
       // Log out of current Google account and re-authenticate
       function logoutAndReload() {
-        var appUrl = window.location.href.split('#')[0];
-        window.top.location.href = 'https://accounts.google.com/Logout?continue=' + encodeURIComponent(appUrl);
+        google.script.run
+          .withSuccessHandler(function(url) {
+            // Preserve the current UI param
+            var ui = getUrlParam('ui');
+            var fullUrl = url + (ui ? '?ui=' + ui : '');
+            window.top.location.href = 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(fullUrl);
+          })
+          .withFailureHandler(function() {
+            window.top.location.reload();
+          })
+          .getAppUrl();
       }
 
       // ── View Results Functions ──────────────────────────────

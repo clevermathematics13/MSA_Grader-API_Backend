@@ -1123,6 +1123,14 @@ function getLoggedInStudent() {
 }
 
 /**
+ * Returns the web app URL for this script (the /exec endpoint).
+ * Used by the client to build proper redirect URLs.
+ */
+function getAppUrl() {
+  return ScriptApp.getService().getUrl();
+}
+
+/**
  * Verifies a student email exists in the Supabase students table.
  * Called from StudentReport.html to gate access before submit/view.
  *
