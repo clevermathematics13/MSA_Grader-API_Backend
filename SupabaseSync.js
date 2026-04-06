@@ -1100,6 +1100,15 @@ function getActiveExamsForReport() {
  *
  * @returns {Object} { email, name?, verified, error? }
  */
+// Instructor emails that get the instructor dashboard
+var INSTRUCTOR_EMAILS_ = [
+  "clevermathematics@gmail.com"
+];
+
+function isInstructor_(email) {
+  return INSTRUCTOR_EMAILS_.indexOf(email.trim().toLowerCase()) !== -1;
+}
+
 function getLoggedInStudent() {
   try {
     var email = Session.getActiveUser().getEmail();
@@ -1108,9 +1117,8 @@ function getLoggedInStudent() {
     }
     email = email.trim().toLowerCase();
 
-    // Check if this is the instructor/owner
-    var ownerEmail = Session.getEffectiveUser().getEmail().trim().toLowerCase();
-    if (email === ownerEmail) {
+    // Check if this is an instructor
+    if (isInstructor_(email)) {
       return { email: email, verified: true, instructor: true, name: "Instructor",
                studentAlias: "pcleveng@amersol.edu.pe" };
     }
@@ -1135,10 +1143,9 @@ function getLoggedInStudent() {
  */
 function getStudentAlias(studentEmail) {
   try {
-    // Only allow the instructor/owner to impersonate
+    // Only allow instructors to impersonate
     var callerEmail = Session.getActiveUser().getEmail().trim().toLowerCase();
-    var ownerEmail = Session.getEffectiveUser().getEmail().trim().toLowerCase();
-    if (callerEmail !== ownerEmail) {
+    if (!isInstructor_(callerEmail)) {
       return { error: "Unauthorized" };
     }
     studentEmail = studentEmail.trim().toLowerCase();
