@@ -1227,16 +1227,54 @@ function getStudentResults(examCode, studentEmail) {
       "&select=question_label,marks_reported" +
       "&order=question_label.asc");
 
-    // Fetch official grades from grades table
-    var grades = supabaseRequest_("GET", "grades", null,
-      "exam_code=eq." + encodeURIComponent(examCode) +
-      "&student_email=eq." + encodeURIComponent(email) +
-      "&select=question_code,marks_awarded,marks_possible" +
-      "&order=question_code.asc");
+    // Fetch official grades from the Google Sheet
+    var grades = [];
+    try {
+      var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+      var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+      var cleanSheetName = examCode.replace(/ \[/, "_").replace(/\] /, "_").replace(/ /g, "_");
+      var gradeSheet = masterSS.getSheetByName(cleanSheetName);
+
+      if (gradeSheet) {
+        var lastCol = gradeSheet.getLastColumn();
+        var lastRow = gradeSheet.getLastRow();
+        if (lastCol >= 3 && lastRow >= 5) {
+          var row1 = gradeSheet.getRange(1, 1, 1, lastCol).getValues()[0]; // question labels
+          var row3 = gradeSheet.getRange(3, 1, 1, lastCol).getValues()[0]; // max points
+          var data = gradeSheet.getRange(5, 1, lastRow - 4, lastCol).getValues(); // student rows
+
+          // Find student row by email (column A)
+          var studentRow = null;
+          for (var r = 0; r < data.length; r++) {
+            var rowEmail = data[r][0] ? data[r][0].toString().trim().toLowerCase() : "";
+            if (rowEmail === email) {
+              studentRow = data[r];
+              break;
+            }
+          }
+
+          if (studentRow) {
+            for (var c = 2; c < lastCol; c++) {
+              var label = row1[c] ? row1[c].toString() : "";
+              if (!label) continue;
+              var maxMarks = row3[c];
+              var awarded = studentRow[c];
+              grades.push({
+                question_code: label,
+                marks_awarded: (awarded !== "" && awarded !== null && awarded !== undefined) ? parseFloat(awarded) : null,
+                marks_possible: (maxMarks !== "" && maxMarks !== null) ? parseFloat(maxMarks) : null
+              });
+            }
+          }
+        }
+      }
+    } catch (sheetErr) {
+      // If sheet read fails, grades will just be empty — self-report still shows
+    }
 
     return {
       submitted: submitted || [],
-      grades: grades || []
+      grades: grades
     };
   } catch (e) {
     return { error: e.message };
