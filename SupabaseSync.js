@@ -1102,7 +1102,8 @@ function getActiveExamsForReport() {
  */
 // Instructor emails that get the instructor dashboard
 var INSTRUCTOR_EMAILS_ = [
-  "clevermathematics@gmail.com"
+  "clevermathematics@gmail.com",
+  "pcleveng@amersol.edu.pe"
 ];
 
 function isInstructor_(email) {
@@ -1154,6 +1155,10 @@ function getStudentAlias(studentEmail) {
       "&select=email,name&limit=1");
     if (rows && rows.length > 0) {
       return { email: studentEmail, name: rows[0].name || "", verified: true };
+    }
+    // Hardcoded fallback for known student alias
+    if (studentEmail === "pcleveng@amersol.edu.pe") {
+      return { email: studentEmail, name: "P. Cleveng", verified: true };
     }
     return { error: "Student " + studentEmail + " not found in the system." };
   } catch (e) {
