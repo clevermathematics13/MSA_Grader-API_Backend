@@ -97,9 +97,12 @@ function getExamsForClass(classFolderId) {
   const folders = classFolder.getFolders();
   while (folders.hasNext()) {
     const folder = folders.next();
+    const name = folder.getName();
+    // Skip folders prefixed with * (hidden/excluded)
+    if (name.charAt(0) === '*') continue;
     exams.push({
       id: folder.getId(),
-      name: folder.getName()
+      name: name
     });
   }
   
