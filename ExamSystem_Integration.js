@@ -33,6 +33,15 @@ function doGet(e) {
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
+
+  // ?ui=results — Student results viewer (read-only view of marks)
+  if (params.ui === 'results') {
+    Logger.log('Serving Student Results UI');
+    return HtmlService.createHtmlOutputFromFile('StudentReport')
+      .setTitle('My Results')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   
   // Default to Exam Management UI (the new one without banner)
   Logger.log('Serving Exam Management UI');

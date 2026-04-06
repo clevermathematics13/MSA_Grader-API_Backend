@@ -221,16 +221,29 @@
       var examCode = null;
       var examParts = [];
       var maxTotal = 0;
+      var resultsOnlyMode = false;
 
       // Check if exam code is in URL params (passed via ?exam=...)
       (function init() {
+        // Detect ?ui=results mode
+        var uiParam = getUrlParam('ui');
+        if (uiParam === 'results') {
+          resultsOnlyMode = true;
+          document.querySelector('.header h1').textContent = '📊 My Results';
+          document.getElementById('examTitle').textContent = 'Enter your email to view results';
+          document.getElementById('loadExamBtn').style.display = 'none';
+          document.getElementById('examSelectSection').style.display = 'none';
+        }
+
         // Parse URL-provided exam code
         var urlExam = getUrlParam('exam');
         if (urlExam) {
           examCode = decodeURIComponent(urlExam);
-          document.getElementById('examTitle').textContent = examCode;
+          if (!resultsOnlyMode) {
+            document.getElementById('examTitle').textContent = examCode;
+          }
           document.getElementById('examSelectSection').style.display = 'none';
-        } else {
+        } else if (!resultsOnlyMode) {
           // No exam in URL — load exam list for selection
           document.getElementById('examTitle').textContent = 'Select an exam below';
           document.getElementById('examSelectSection').style.display = 'block';
@@ -289,11 +302,47 @@
           return;
         }
 
+        // Disable buttons during verification
+        document.getElementById('loadExamBtn').disabled = true;
+        document.getElementById('loadExamBtn').textContent = 'Verifying...';
+        hideStatus('step1Status');
+
+        // Verify email is a registered student
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (!result.verified) {
+              showStatus('step1Status', 'error',
+                result.error || 'Email not found. Make sure you use your registered school email.');
+              document.getElementById('loadExamBtn').disabled = false;
+              document.getElementById('loadExamBtn').textContent = 'Submit Marks';
+              return;
+            }
+            // Verified — proceed to step 2
+            document.getElementById('loadExamBtn').disabled = false;
+            document.getElementById('loadExamBtn').textContent = 'Submit Marks';
+            proceedToStep2(email, result.name);
+          })
+          .withFailureHandler(function(err) {
+            showStatus('step1Status', 'error', 'Verification failed: ' + err.message);
+            document.getElementById('loadExamBtn').disabled = false;
+            document.getElementById('loadExamBtn').textContent = 'Submit Marks';
+          })
+          .verifyStudentEmail(email);
+      }
+
+      function proceedToStep2(email, studentName) {
         // Move to step 2
         document.getElementById('step1').style.display = 'none';
         document.getElementById('step2').style.display = 'block';
-        document.getElementById('confirmedEmail').textContent = email;
+        document.getElementById('confirmedEmail').dataset.email = email;
         document.getElementById('examTitle').textContent = examCode;
+
+        // Show student name if available
+        if (studentName) {
+          document.getElementById('confirmedEmail').textContent = studentName + ' (' + email + ')';
+        } else {
+          document.getElementById('confirmedEmail').textContent = email;
+        }
 
         // Fetch exam parts
         google.script.run
@@ -367,7 +416,7 @@
       }
 
       function submitMarks() {
-        var email = document.getElementById('confirmedEmail').textContent;
+        var email = document.getElementById('confirmedEmail').dataset.email;
         var marks = [];
 
         examParts.forEach(function(p, idx) {
@@ -439,14 +488,38 @@
           showStatus('step1Status', 'error', 'Please enter a valid school email.');
           return;
         }
-        resultsEmail = email;
-        resultsFromSubmit = false;
-        showStep4();
-        loadStudentExams(email);
+
+        // Disable button during verification
+        document.getElementById('viewResultsBtn').disabled = true;
+        document.getElementById('viewResultsBtn').textContent = 'Verifying...';
+        hideStatus('step1Status');
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById('viewResultsBtn').disabled = false;
+            document.getElementById('viewResultsBtn').textContent = 'View My Results';
+
+            if (!result.verified) {
+              showStatus('step1Status', 'error',
+                result.error || 'Email not found. Make sure you use your registered school email.');
+              return;
+            }
+
+            resultsEmail = email;
+            resultsFromSubmit = false;
+            showStep4();
+            loadStudentExams(email);
+          })
+          .withFailureHandler(function(err) {
+            document.getElementById('viewResultsBtn').disabled = false;
+            document.getElementById('viewResultsBtn').textContent = 'View My Results';
+            showStatus('step1Status', 'error', 'Verification failed: ' + err.message);
+          })
+          .verifyStudentEmail(email);
       }
 
       function viewResultsAfterSubmit() {
-        resultsEmail = document.getElementById('confirmedEmail').textContent;
+        resultsEmail = document.getElementById('confirmedEmail').dataset.email;
         resultsFromSubmit = true;
         document.getElementById('step3').style.display = 'none';
         showStep4();

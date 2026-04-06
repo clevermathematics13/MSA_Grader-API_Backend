@@ -1092,6 +1092,33 @@ function getActiveExamsForReport() {
 }
 
 /**
+ * Verifies a student email exists in the Supabase students table.
+ * Called from StudentReport.html to gate access before submit/view.
+ *
+ * @param {string} studentEmail - The student's email
+ * @returns {Object} { verified: boolean, name?: string, error? }
+ */
+function verifyStudentEmail(studentEmail) {
+  try {
+    if (!studentEmail) return { verified: false, error: "No email provided." };
+
+    var email = studentEmail.toString().trim().toLowerCase();
+    if (!email || email.indexOf("@") === -1) return { verified: false, error: "Invalid email." };
+
+    var rows = supabaseRequest_("GET", "students", null,
+      "email=eq." + encodeURIComponent(email) +
+      "&select=email,name&limit=1");
+
+    if (rows && rows.length > 0) {
+      return { verified: true, name: rows[0].name || "" };
+    }
+    return { verified: false };
+  } catch (e) {
+    return { verified: false, error: e.message };
+  }
+}
+
+/**
  * Retrieves a student's submitted marks and official grades for an exam.
  * Called from StudentReport.html via google.script.run.
  *
@@ -1188,4 +1215,17 @@ function showStudentReportLink() {
     reportUrl + "\n\n" +
     "Exam: " + examName,
     ui.ButtonSet.OK);
+}
+
+/**
+ * Shows the student results URL.
+ * Menu action: Database Tools → Get Student Results Link
+ */
+function showStudentResultsLink() {
+  var webAppUrl = ScriptApp.getService().getUrl();
+  var resultsUrl = webAppUrl + "?ui=results";
+
+  SpreadsheetApp.getUi().alert("📊 Student Results Link",
+    "Share this URL with students to view their grades:\n\n" + resultsUrl,
+    SpreadsheetApp.getUi().ButtonSet.OK);
 }
