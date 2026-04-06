@@ -249,6 +249,10 @@
       var studentAliasEmail = '';
       var impersonating = false;
 
+      // Preloaded data from server (embedded at serve time)
+      var preloadedAuth = <?!= preloadedAuth ?>;
+      var preloadedExams = <?!= preloadedExams ?>;
+
       // Check if exam code is in URL params (passed via ?exam=...)
       (function init() {
         // Detect ?ui=results mode
@@ -265,70 +269,76 @@
           examCode = decodeURIComponent(urlExam);
         }
 
-        // Auto-authenticate via Google
-        google.script.run
-          .withSuccessHandler(function(result) {
-            document.getElementById('authLoading').style.display = 'none';
+        // Pre-populate exam dropdown immediately (no async wait)
+        if (preloadedExams && !preloadedExams.error) {
+          var sel = document.getElementById('examSelect');
+          (preloadedExams.exams || []).forEach(function(ex) {
+            var opt = document.createElement('option');
+            opt.value = ex.code;
+            opt.textContent = ex.name;
+            sel.appendChild(opt);
+          });
+        }
 
+        // Use preloaded auth result (no async round-trip)
+        handleAuthResult(preloadedAuth);
+      })();
 
-            if (result.error || !result.email) {
-              showStatus('step1Status', 'error',
-                (result.error || 'Could not detect your Google account. Please sign in and reload.') +
-                '<br><button class="btn btn-secondary" onclick="logoutAndReload()">Log in as another user</button>'
-              );
-              return;
-            }
+      function handleAuthResult(result) {
+        document.getElementById('authLoading').style.display = 'none';
 
-            loggedInEmail = result.email;
-            loggedInName = result.name || '';
-            document.getElementById('emailInput').value = loggedInEmail;
+        if (!result || result.error || !result.email) {
+          showStatus('step1Status', 'error',
+            (result && result.error ? result.error : 'Could not detect your Google account. Please sign in and reload.') +
+            '<br><button class="btn btn-secondary" onclick="logoutAndReload()">Log in as another user</button>'
+          );
+          return;
+        }
 
-            // Instructor detection
-            if (result.instructor) {
-              isInstructor = true;
-              studentAliasEmail = result.studentAlias || '';
-              var displayName = 'Instructor (' + loggedInEmail + ')';
-              document.getElementById('authEmail').textContent = displayName;
-              document.getElementById('authDone').style.display = 'block';
-              document.getElementById('instructorPanel').style.display = 'block';
-              document.getElementById('studentBtnRow').style.display = 'none';
-              document.getElementById('examTitle').textContent = 'Instructor Dashboard';
-              return;
-            }
+        loggedInEmail = result.email;
+        loggedInName = result.name || '';
+        document.getElementById('emailInput').value = loggedInEmail;
 
-            if (!result.verified) {
-              showStatus('step1Status', 'error',
-                'Your account (' + loggedInEmail + ') is not registered as a student.<br>' +
-                'Please log in with your school account. If you forgot your school account password, contact <a href="mailto:ithelpdesk@amersol.edu.pe">ithelpdesk@amersol.edu.pe</a>.' +
-                '<br><button class="btn btn-secondary" style="margin-top:12px;" onclick="logoutAndReload()">Log in as another user</button>'
-              );
-              return;
-            }
+        // Instructor detection
+        if (result.instructor) {
+          isInstructor = true;
+          studentAliasEmail = result.studentAlias || '';
+          var displayName = 'Instructor (' + loggedInEmail + ')';
+          document.getElementById('authEmail').textContent = displayName;
+          document.getElementById('authDone').style.display = 'block';
+          document.getElementById('instructorPanel').style.display = 'block';
+          document.getElementById('studentBtnRow').style.display = 'none';
+          document.getElementById('examTitle').textContent = 'Instructor Dashboard';
+          return;
+        }
 
-            // Show authenticated UI
-            var displayName = loggedInName ? loggedInName + ' (' + loggedInEmail + ')' : loggedInEmail;
-            document.getElementById('authEmail').textContent = displayName;
-            document.getElementById('authDone').style.display = 'block';
+        if (!result.verified) {
+          showStatus('step1Status', 'error',
+            'Your account (' + loggedInEmail + ') is not registered as a student.<br>' +
+            'Please log in with your school account. If you forgot your school account password, contact <a href="mailto:ithelpdesk@amersol.edu.pe">ithelpdesk@amersol.edu.pe</a>.' +
+            '<br><button class="btn btn-secondary" style="margin-top:12px;" onclick="logoutAndReload()">Log in as another user</button>'
+          );
+          return;
+        }
 
-            // Set up exam selection
-            if (resultsOnlyMode) {
-              document.getElementById('examTitle').textContent = 'My Results';
-              document.getElementById('loadExamBtn').style.display = 'none';
-              document.getElementById('examSelectSection').style.display = 'none';
-            } else if (examCode) {
-              document.getElementById('examTitle').textContent = examCode;
-              document.getElementById('examSelectSection').style.display = 'none';
-            } else {
-              document.getElementById('examTitle').textContent = 'Select an exam below';
-              document.getElementById('examSelectSection').style.display = 'block';
-              loadExamList();
-            }
-          })
-          .withFailureHandler(function(err) {
-            document.getElementById('authLoading').style.display = 'none';
-            showStatus('step1Status', 'error', 'Authentication failed: ' + err.message);
-          })
-          .getLoggedInStudent();
+        // Show authenticated UI
+        var displayName = loggedInName ? loggedInName + ' (' + loggedInEmail + ')' : loggedInEmail;
+        document.getElementById('authEmail').textContent = displayName;
+        document.getElementById('authDone').style.display = 'block';
+
+        // Set up exam selection (exams already in dropdown from preload)
+        if (resultsOnlyMode) {
+          document.getElementById('examTitle').textContent = 'My Results';
+          document.getElementById('loadExamBtn').style.display = 'none';
+          document.getElementById('examSelectSection').style.display = 'none';
+        } else if (examCode) {
+          document.getElementById('examTitle').textContent = examCode;
+          document.getElementById('examSelectSection').style.display = 'none';
+        } else {
+          document.getElementById('examTitle').textContent = 'Select an exam below';
+          document.getElementById('examSelectSection').style.display = 'block';
+        }
+      }
       })();
 
       function getUrlParam(name) {
@@ -341,29 +351,7 @@
         return match ? decodeURIComponent(match[1]) : null;
       }
 
-      function loadExamList() {
-        google.script.run
-          .withSuccessHandler(function(result) {
-            if (result.error) {
-              showStatus('step1Status', 'error', result.error);
-              return;
-            }
-            var sel = document.getElementById('examSelect');
-            (result.exams || []).forEach(function(ex) {
-              var opt = document.createElement('option');
-              opt.value = ex.code;
-              opt.textContent = ex.name;
-              sel.appendChild(opt);
-            });
-            if (result.exams && result.exams.length === 0) {
-              showStatus('step1Status', 'info', 'No active exams found. Ask your teacher.');
-            }
-          })
-          .withFailureHandler(function(err) {
-            showStatus('step1Status', 'error', 'Failed to load exams: ' + err.message);
-          })
-          .getActiveExamsForReport();
-      }
+      // loadExamList() no longer needed — exams are preloaded via template
 
       function loadExam() {
         var email = loggedInEmail;

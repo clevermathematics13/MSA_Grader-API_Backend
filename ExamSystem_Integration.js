@@ -28,7 +28,10 @@ function doGet(e) {
   // ?ui=report — Student self-report page (replaces Google Forms)
   if (params.ui === 'report') {
     Logger.log('Serving Student Report UI');
-    return HtmlService.createHtmlOutputFromFile('StudentReport')
+    var tpl = HtmlService.createTemplateFromFile('StudentReport');
+    tpl.preloadedAuth = JSON.stringify(getLoggedInStudent());
+    tpl.preloadedExams = JSON.stringify(getActiveExamsForReport());
+    return tpl.evaluate()
       .setTitle('Marks Self-Report')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -37,7 +40,10 @@ function doGet(e) {
   // ?ui=results — Student results viewer (read-only view of marks)
   if (params.ui === 'results') {
     Logger.log('Serving Student Results UI');
-    return HtmlService.createHtmlOutputFromFile('StudentReport')
+    var tpl2 = HtmlService.createTemplateFromFile('StudentReport');
+    tpl2.preloadedAuth = JSON.stringify(getLoggedInStudent());
+    tpl2.preloadedExams = JSON.stringify(getActiveExamsForReport());
+    return tpl2.evaluate()
       .setTitle('My Results')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
