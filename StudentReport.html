@@ -497,7 +497,7 @@
       function showStatus(id, type, msg) {
         var el = document.getElementById(id);
         el.className = 'status ' + type;
-        el.textContent = msg;
+        el.innerHTML = msg;
         el.style.display = 'block';
       }
 
