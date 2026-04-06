@@ -1108,6 +1108,13 @@ function getLoggedInStudent() {
     }
     email = email.trim().toLowerCase();
 
+    // Check if this is the instructor/owner
+    var ownerEmail = Session.getEffectiveUser().getEmail().trim().toLowerCase();
+    if (email === ownerEmail) {
+      return { email: email, verified: true, instructor: true, name: "Instructor",
+               studentAlias: "pcleveng@amersol.edu.pe" };
+    }
+
     // Look up in students table
     var rows = supabaseRequest_("GET", "students", null,
       "email=eq." + encodeURIComponent(email) +
@@ -1119,6 +1126,31 @@ function getLoggedInStudent() {
     return { email: email, verified: false };
   } catch (e) {
     return { email: "", verified: false, error: e.message };
+  }
+}
+
+/**
+ * Returns the student alias data for an instructor impersonating a student.
+ * Looks up the student in the students table and returns their info.
+ */
+function getStudentAlias(studentEmail) {
+  try {
+    // Only allow the instructor/owner to impersonate
+    var callerEmail = Session.getActiveUser().getEmail().trim().toLowerCase();
+    var ownerEmail = Session.getEffectiveUser().getEmail().trim().toLowerCase();
+    if (callerEmail !== ownerEmail) {
+      return { error: "Unauthorized" };
+    }
+    studentEmail = studentEmail.trim().toLowerCase();
+    var rows = supabaseRequest_("GET", "students", null,
+      "email=eq." + encodeURIComponent(studentEmail) +
+      "&select=email,name&limit=1");
+    if (rows && rows.length > 0) {
+      return { email: studentEmail, name: rows[0].name || "", verified: true };
+    }
+    return { error: "Student " + studentEmail + " not found in the system." };
+  } catch (e) {
+    return { error: e.message };
   }
 }
 

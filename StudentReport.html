@@ -143,6 +143,17 @@
               <input type="hidden" id="emailInput">
             </div>
 
+            <!-- Instructor panel (hidden for students) -->
+            <div id="instructorPanel" style="display:none;">
+              <div style="background:#f0f4ff;border:2px solid #667eea;border-radius:8px;padding:16px;margin-bottom:16px;">
+                <div style="font-weight:600;color:#667eea;margin-bottom:8px;">🎓 Instructor Mode</div>
+                <div class="btn-row">
+                  <button class="btn btn-primary" onclick="goToExamUI()">Exam Management</button>
+                  <button class="btn btn-secondary" id="switchToStudentBtn" onclick="switchToStudent()">View as Student</button>
+                </div>
+              </div>
+            </div>
+
             <div class="field exam-select-section" id="examSelectSection" style="display:none;">
               <label for="examSelect">Select Exam</label>
               <select id="examSelect">
@@ -150,7 +161,7 @@
               </select>
             </div>
 
-            <div class="btn-row">
+            <div class="btn-row" id="studentBtnRow">
               <button class="btn btn-primary" id="loadExamBtn" onclick="loadExam()">Submit Marks</button>
               <button class="btn btn-secondary" id="viewResultsBtn" onclick="viewResults()">View My Results</button>
             </div>
@@ -231,6 +242,9 @@
       var resultsOnlyMode = false;
       var loggedInEmail = '';
       var loggedInName = '';
+      var isInstructor = false;
+      var studentAliasEmail = '';
+      var impersonating = false;
 
       // Check if exam code is in URL params (passed via ?exam=...)
       (function init() {
@@ -265,6 +279,19 @@
             loggedInEmail = result.email;
             loggedInName = result.name || '';
             document.getElementById('emailInput').value = loggedInEmail;
+
+            // Instructor detection
+            if (result.instructor) {
+              isInstructor = true;
+              studentAliasEmail = result.studentAlias || '';
+              var displayName = 'Instructor (' + loggedInEmail + ')';
+              document.getElementById('authEmail').textContent = displayName;
+              document.getElementById('authDone').style.display = 'block';
+              document.getElementById('instructorPanel').style.display = 'block';
+              document.getElementById('studentBtnRow').style.display = 'none';
+              document.getElementById('examTitle').textContent = 'Instructor Dashboard';
+              return;
+            }
 
             if (!result.verified) {
               showStatus('step1Status', 'error',
@@ -501,6 +528,76 @@
         var div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+      }
+
+      // ── Instructor Functions ──────────────────────────────
+
+      function goToExamUI() {
+        google.script.run
+          .withSuccessHandler(function(url) {
+            window.top.location.href = url;
+          })
+          .withFailureHandler(function() {
+            showStatus('step1Status', 'error', 'Could not get app URL.');
+          })
+          .getAppUrl();
+      }
+
+      function switchToStudent() {
+        document.getElementById('switchToStudentBtn').disabled = true;
+        document.getElementById('switchToStudentBtn').textContent = 'Loading...';
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById('switchToStudentBtn').disabled = false;
+            document.getElementById('switchToStudentBtn').textContent = 'View as Student';
+
+            if (result.error) {
+              showStatus('step1Status', 'error', result.error);
+              return;
+            }
+
+            // Impersonate the student
+            impersonating = true;
+            loggedInEmail = result.email;
+            loggedInName = result.name || '';
+            document.getElementById('emailInput').value = loggedInEmail;
+
+            // Update UI to student view
+            var displayName = loggedInName ? loggedInName + ' (' + loggedInEmail + ')' : loggedInEmail;
+            document.getElementById('authEmail').innerHTML =
+              displayName + ' <span style="font-size:12px;color:#667eea;">(viewing as student)</span>';
+            document.getElementById('instructorPanel').style.display = 'none';
+            document.getElementById('studentBtnRow').style.display = 'flex';
+
+            // Show back-to-instructor button
+            var backBtn = document.createElement('button');
+            backBtn.className = 'btn btn-secondary';
+            backBtn.style.marginTop = '10px';
+            backBtn.textContent = '← Back to Instructor Mode';
+            backBtn.onclick = function() { window.location.reload(); };
+            document.getElementById('studentBtnRow').parentNode.insertBefore(backBtn, document.getElementById('studentBtnRow').nextSibling);
+
+            // Set up exam selection like a normal student
+            if (resultsOnlyMode) {
+              document.getElementById('examTitle').textContent = 'Results for ' + loggedInName;
+              document.getElementById('loadExamBtn').style.display = 'none';
+              document.getElementById('examSelectSection').style.display = 'none';
+            } else if (examCode) {
+              document.getElementById('examTitle').textContent = examCode;
+              document.getElementById('examSelectSection').style.display = 'none';
+            } else {
+              document.getElementById('examTitle').textContent = 'Select an exam below';
+              document.getElementById('examSelectSection').style.display = 'block';
+              loadExamList();
+            }
+          })
+          .withFailureHandler(function(err) {
+            document.getElementById('switchToStudentBtn').disabled = false;
+            document.getElementById('switchToStudentBtn').textContent = 'View as Student';
+            showStatus('step1Status', 'error', 'Failed to switch: ' + err.message);
+          })
+          .getStudentAlias(studentAliasEmail);
       }
 
       // Log out of current Google account and re-authenticate
