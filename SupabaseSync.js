@@ -1076,11 +1076,13 @@ function getActiveExamsForReport() {
     // Column H = exam name, Column K = status
     var data = studentSheet.getRange(2, 8, lastRow - 1, 4).getValues();
     var exams = [];
+    var seen = {};
 
     for (var i = 0; i < data.length; i++) {
       var name = data[i][0] ? data[i][0].toString().trim() : "";
       var status = data[i][3] ? data[i][3].toString().trim() : "";
-      if (name && status.indexOf("Active") !== -1) {
+      if (name && status.indexOf("Active") !== -1 && !seen[name]) {
+        seen[name] = true;
         exams.push({ code: name, name: name });
       }
     }
@@ -1228,4 +1230,141 @@ function showStudentResultsLink() {
   SpreadsheetApp.getUi().alert("📊 Student Results Link",
     "Share this URL with students to view their grades:\n\n" + resultsUrl,
     SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * Activates the current exam for student self-reporting.
+ * Adds a row to the Students sheet with "Active" status if not already active.
+ * Menu action: Database Tools → Activate Exam for Reporting
+ */
+function activateExamForReporting() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ppq = ss.getSheetByName("PPQselector");
+  var examName = ppq ? ppq.getRange("G1").getDisplayValue().trim() : "";
+
+  if (!examName) {
+    ui.alert("⚠️ No exam name in PPQselector G1. Build an exam first.");
+    return;
+  }
+
+  var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+  var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+  var studentSheet = masterSS.getSheetByName("Students");
+  if (!studentSheet) {
+    ui.alert("⚠️ Students sheet not found in The Exam Portal.");
+    return;
+  }
+
+  var lastRow = studentSheet.getLastRow();
+
+  // Check if exam is already active
+  if (lastRow >= 2) {
+    var data = studentSheet.getRange(2, 8, lastRow - 1, 4).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var name = data[i][0] ? data[i][0].toString().trim() : "";
+      var status = data[i][3] ? data[i][3].toString().trim() : "";
+      if (name === examName && status.indexOf("Active") !== -1) {
+        ui.alert("ℹ️ Exam '" + examName + "' is already active for reporting.");
+        return;
+      }
+    }
+  }
+
+  // Add new row with exam marked as Active
+  var newRow = lastRow + 1;
+  studentSheet.getRange(newRow, 8).setValue(examName);  // Col H = exam name
+  studentSheet.getRange(newRow, 11).setValue("Active");  // Col K = status
+
+  // Also generate and show the report link
+  var webAppUrl = ScriptApp.getService().getUrl();
+  var reportUrl = webAppUrl + "?ui=report&exam=" + encodeURIComponent(examName);
+
+  ui.alert("✅ Exam Activated for Reporting",
+    "'" + examName + "' is now available in the student self-report dropdown.\n\n" +
+    "Share this link with students:\n" + reportUrl,
+    ui.ButtonSet.OK);
+}
+
+/**
+ * Deactivates an exam from student self-reporting.
+ * Changes status from "Active" to "Closed" in the Students sheet.
+ * Menu action: Database Tools → Deactivate Exam for Reporting
+ */
+function deactivateExamForReporting() {
+  var ui = SpreadsheetApp.getUi();
+  var MASTER_DB_ID = "1sONUu-uxPHsp-VuNxa3d1pM7x_HdNBjftRjLE0BI9KA";
+  var masterSS = SpreadsheetApp.openById(MASTER_DB_ID);
+  var studentSheet = masterSS.getSheetByName("Students");
+  if (!studentSheet) {
+    ui.alert("⚠️ Students sheet not found in The Exam Portal.");
+    return;
+  }
+
+  var lastRow = studentSheet.getLastRow();
+  if (lastRow < 2) {
+    ui.alert("⚠️ No exams found in Students sheet.");
+    return;
+  }
+
+  // Find all active exams
+  var data = studentSheet.getRange(2, 8, lastRow - 1, 4).getValues();
+  var activeExams = [];
+  var activeRows = [];
+  var seen = {};
+  for (var i = 0; i < data.length; i++) {
+    var name = data[i][0] ? data[i][0].toString().trim() : "";
+    var status = data[i][3] ? data[i][3].toString().trim() : "";
+    if (name && status.indexOf("Active") !== -1 && !seen[name]) {
+      seen[name] = true;
+      activeExams.push(name);
+      activeRows.push(i);
+    }
+  }
+
+  if (activeExams.length === 0) {
+    ui.alert("ℹ️ No active exams found.");
+    return;
+  }
+
+  // Ask which exam to deactivate
+  var prompt = "Active exams:\n";
+  for (var j = 0; j < activeExams.length; j++) {
+    prompt += (j + 1) + ". " + activeExams[j] + "\n";
+  }
+  prompt += "\nEnter the number to deactivate (or 'all' to close all):";
+
+  var response = ui.prompt("Deactivate Exam", prompt, ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+
+  var input = response.getResponseText().trim().toLowerCase();
+
+  if (input === "all") {
+    // Deactivate all
+    for (var k = 0; k < data.length; k++) {
+      var s = data[k][3] ? data[k][3].toString().trim() : "";
+      if (s.indexOf("Active") !== -1) {
+        studentSheet.getRange(k + 2, 11).setValue("Closed");
+      }
+    }
+    ui.alert("✅ All " + activeExams.length + " exam(s) deactivated.");
+  } else {
+    var idx = parseInt(input) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= activeExams.length) {
+      ui.alert("⚠️ Invalid selection.");
+      return;
+    }
+    // Find ALL rows for this exam and deactivate
+    var examToClose = activeExams[idx];
+    var closed = 0;
+    for (var m = 0; m < data.length; m++) {
+      var n = data[m][0] ? data[m][0].toString().trim() : "";
+      var st = data[m][3] ? data[m][3].toString().trim() : "";
+      if (n === examToClose && st.indexOf("Active") !== -1) {
+        studentSheet.getRange(m + 2, 11).setValue("Closed");
+        closed++;
+      }
+    }
+    ui.alert("✅ '" + examToClose + "' deactivated (" + closed + " row(s) updated).");
+  }
 }

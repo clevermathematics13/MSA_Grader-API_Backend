@@ -810,7 +810,11 @@ function onOpen() {
       .addSeparator()
       .addItem('✅ Verify DB Sync', 'verifySupabaseSync')
       .addSeparator()
-      .addItem('📝 Get Student Report Link', 'showStudentReportLink'))
+      .addItem('📝 Get Student Report Link', 'showStudentReportLink')
+      .addItem('📊 Get Student Results Link', 'showStudentResultsLink')
+      .addSeparator()
+      .addItem('✅ Activate Exam for Reporting', 'activateExamForReporting')
+      .addItem('🚫 Deactivate Exam for Reporting', 'deactivateExamForReporting'))
 
     .addToUi();
 }
