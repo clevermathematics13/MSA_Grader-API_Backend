@@ -1,7 +1,11 @@
 **/*
 !appsscript.json
 !Index.html
+!ExamUI.html
+!StudentReport.html
 !WebApp.js
+!ExamSystem_Integration.js
+!ExamUI_Backend.js
 !MSA_RunAndValidate.js
 !MSA_Helpers_And_Pass1.js
 !MSA_Drive.js
@@ -15,18 +19,15 @@
 !MSA_DocImages.js
 !createTestAndMS.js
 !testBuilder.js
-!Code.js
 !Archiver.js
-!DocFetcher.js
-!harvestLegacyResponces.js
-!HL chooser.js
-!inspectFolder.js
-!MasterMenu.js
-!MSA_Atomizer_Pass4.js
-!MSA_Testing.js
 !PPQselector.js
-!SL chooser.js
 !SupabaseSync.js
+!GradingAI.js
+!Launcher.js
+!OCR_Learn.js
+!OCR_Verify.js
+!StudentOCR_Profile.js
+!StudentWorkOCR.js
 # Never push Node tooling into Apps Script
 node_modules/
 package.json
