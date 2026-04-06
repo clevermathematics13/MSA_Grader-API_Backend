@@ -1094,6 +1094,35 @@ function getActiveExamsForReport() {
 }
 
 /**
+ * Gets the currently logged-in user's email and verifies they are a registered student.
+ * Uses Google's built-in Session auth — requires web app deployed with
+ * "Who has access: Anyone with a Google Account" (not "Anyone").
+ *
+ * @returns {Object} { email, name?, verified, error? }
+ */
+function getLoggedInStudent() {
+  try {
+    var email = Session.getActiveUser().getEmail();
+    if (!email) {
+      return { email: "", verified: false, error: "Could not detect your Google account. Make sure you are signed in." };
+    }
+    email = email.trim().toLowerCase();
+
+    // Look up in students table
+    var rows = supabaseRequest_("GET", "students", null,
+      "email=eq." + encodeURIComponent(email) +
+      "&select=email,name&limit=1");
+
+    if (rows && rows.length > 0) {
+      return { email: email, name: rows[0].name || "", verified: true };
+    }
+    return { email: email, verified: false };
+  } catch (e) {
+    return { email: "", verified: false, error: e.message };
+  }
+}
+
+/**
  * Verifies a student email exists in the Supabase students table.
  * Called from StudentReport.html to gate access before submit/view.
  *
