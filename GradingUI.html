@@ -145,25 +145,36 @@
       var pendingSaves = 0;
       var saveQueue = []; // queue for sequential saves
 
+      // Preloaded data from server (embedded at serve time)
+      var preloadedExams = <?!= preloadedExams ?>;
+      var preloadedGrades = <?!= preloadedGrades ?>;
+      var preloadedExam = '<?!= preloadedExam ?>';
+
       (function init() {
-        google.script.run
-          .withSuccessHandler(function(result) {
-            if (result.error) {
-              showStatus('error', result.error);
-              return;
-            }
-            var sel = document.getElementById('examSelect');
-            (result.exams || []).forEach(function(name) {
-              var opt = document.createElement('option');
-              opt.value = name;
-              opt.textContent = name;
-              sel.appendChild(opt);
-            });
-          })
-          .withFailureHandler(function(err) {
-            showStatus('error', 'Failed to load exams: ' + err.message);
-          })
-          .getExamSheetsForGrading();
+        // Populate exam dropdown from preloaded data
+        if (preloadedExams && !preloadedExams.error) {
+          var sel = document.getElementById('examSelect');
+          (preloadedExams.exams || []).forEach(function(name) {
+            var opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            sel.appendChild(opt);
+          });
+        } else if (preloadedExams && preloadedExams.error) {
+          showStatus('error', preloadedExams.error);
+        }
+
+        // If grades were preloaded (exam param in URL), render immediately
+        if (preloadedExam && preloadedGrades && !preloadedGrades.error) {
+          document.getElementById('examSelect').value = preloadedExam;
+          examData = preloadedGrades;
+          renderGrid(preloadedGrades);
+          document.getElementById('gridWrap').style.display = 'block';
+          document.getElementById('examInfo').textContent =
+            preloadedGrades.students.length + ' students · ' + preloadedGrades.questions.length + ' questions';
+        } else if (preloadedGrades && preloadedGrades.error) {
+          showStatus('error', preloadedGrades.error);
+        }
       })();
 
       function loadExam() {

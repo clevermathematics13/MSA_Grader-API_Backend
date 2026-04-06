@@ -46,7 +46,18 @@ function doGet(e) {
   // ?ui=grading — Instructor grading UI
   if (params.ui === 'grading') {
     Logger.log('Serving Grading UI');
-    return HtmlService.createHtmlOutputFromFile('GradingUI')
+    var tpl = HtmlService.createTemplateFromFile('GradingUI');
+    tpl.preloadedExams = JSON.stringify(getExamSheetsForGrading());
+    // If exam param provided, preload that exam's data too
+    var examParam = params.exam || '';
+    if (examParam) {
+      tpl.preloadedGrades = JSON.stringify(loadGradingData(examParam));
+      tpl.preloadedExam = examParam;
+    } else {
+      tpl.preloadedGrades = 'null';
+      tpl.preloadedExam = '';
+    }
+    return tpl.evaluate()
       .setTitle('Grade Entry')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
