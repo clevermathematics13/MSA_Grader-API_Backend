@@ -253,9 +253,12 @@
           .withSuccessHandler(function(result) {
             document.getElementById('authLoading').style.display = 'none';
 
+
             if (result.error || !result.email) {
               showStatus('step1Status', 'error',
-                result.error || 'Could not detect your Google account. Please sign in and reload.');
+                (result.error || 'Could not detect your Google account. Please sign in and reload.') +
+                '<br><button class="btn btn-secondary" onclick="logoutAndReload()">Log in as another user</button>'
+              );
               return;
             }
 
@@ -265,9 +268,16 @@
 
             if (!result.verified) {
               showStatus('step1Status', 'error',
-                'Your account (' + loggedInEmail + ') is not registered as a student. Contact your teacher.');
+                'Your account (' + loggedInEmail + ') is not registered as a student.<br>' +
+                'Please log in with your school account. If you believe this is an error, contact <a href="mailto:ithelpdesk@amersol.edu.pe">ithelpdesk@amersol.edu.pe</a>.' +
+                '<br><button class="btn btn-secondary" onclick="logoutAndReload()">Log in as another user</button>'
+              );
               return;
             }
+      // Log out and reload for another user
+      function logoutAndReload() {
+        window.location.href = 'https://accounts.google.com/Logout?continue=' + encodeURIComponent(window.location.href);
+      }
 
             // Show authenticated UI
             var displayName = loggedInName ? loggedInName + ' (' + loggedInEmail + ')' : loggedInEmail;
