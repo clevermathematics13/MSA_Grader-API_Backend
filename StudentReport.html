@@ -760,6 +760,18 @@
           if (!seen[g.question_code]) { allLabels.push(g.question_code); seen[g.question_code] = true; }
         });
 
+        // Natural sort: split into [text, number, suffix] so 7a < 7b < 7d, 6a < 6b etc.
+        allLabels.sort(function(a, b) {
+          var re = /^(\d+)(.*)/;
+          var ma = a.match(re), mb = b.match(re);
+          if (ma && mb) {
+            var na = parseInt(ma[1]), nb = parseInt(mb[1]);
+            if (na !== nb) return na - nb;
+            return (ma[2] || '').localeCompare(mb[2] || '');
+          }
+          return a.localeCompare(b);
+        });
+
         var hasGrades = grades && grades.length > 0;
 
         var html = '<table class="results-table"><thead><tr>' +
@@ -783,9 +795,18 @@
             matchClass = (parseFloat(sub) === parseFloat(grade.marks_awarded)) ? 'match' : 'mismatch';
           }
 
+          // Build editable self-assessed cell (only for non-instructor student view)
+          var selfCell;
+          if (!isInstructor) {
+            selfCell = '<td class="self-cell" data-label="' + escapeHtml(label) + '" tabindex="0">' +
+              (subVal !== '' ? subVal : '<span class="pending">—</span>') + '</td>';
+          } else {
+            selfCell = '<td>' + (subVal !== '' ? subVal : '<span class="pending">—</span>') + '</td>';
+          }
+
           html += '<tr>' +
             '<td class="label-cell">' + escapeHtml(label) + '</td>' +
-            '<td>' + (subVal !== '' ? subVal : '<span class="pending">—</span>') + '</td>';
+            selfCell;
           if (hasGrades) {
             html += '<td class="' + matchClass + '">' +
               (offVal !== '' ? offVal : '<span class="pending">pending</span>') + '</td>' +
@@ -812,6 +833,71 @@
 
         container.innerHTML = html;
         container.style.display = 'block';
+
+        // Attach inline-edit listeners to self-assessed cells
+        if (!isInstructor) {
+          container.querySelectorAll('.self-cell').forEach(function(td) {
+            // On keydown: if user types a digit, replace cell content with an input
+            td.addEventListener('keydown', function(e) {
+              if (td.querySelector('input')) return; // already editing
+              // Allow digits 0-9 and Backspace/Delete to trigger edit mode
+              if (/^[0-9]$/.test(e.key) || e.key === 'Backspace' || e.key === 'Delete') {
+                e.preventDefault();
+                startSelfEdit(td, /^[0-9]$/.test(e.key) ? e.key : '');
+              }
+            });
+          });
+        }
+      }
+
+      function startSelfEdit(td, initialVal) {
+        var label = td.getAttribute('data-label');
+        var inp = document.createElement('input');
+        inp.type = 'number';
+        inp.min = '0';
+        inp.style.cssText = 'width:50px;text-align:center;font-size:inherit;border:1px solid #2196F3;border-radius:3px;padding:2px 4px;';
+        inp.value = initialVal;
+        td.textContent = '';
+        td.appendChild(inp);
+        inp.focus();
+
+        function commit() {
+          var val = inp.value.trim();
+          td.textContent = val !== '' ? val : '—';
+          if (val !== '') {
+            td.style.background = '#FFF9C4';
+            saveSelfMark(label, parseFloat(val), td);
+          }
+        }
+        inp.addEventListener('blur', commit);
+        inp.addEventListener('keydown', function(ev) {
+          if (ev.key === 'Enter') { inp.blur(); }
+          if (ev.key === 'Escape') {
+            // restore original without saving
+            td.textContent = td.getAttribute('data-orig') || '—';
+          }
+        });
+        // Store original for Escape
+        td.setAttribute('data-orig', td.textContent);
+      }
+
+      function saveSelfMark(questionLabel, value, td) {
+        var code = document.getElementById('resultsExamTitle').textContent;
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (res && res.error) {
+              td.style.background = '#FFCDD2';
+              td.title = res.error;
+            } else {
+              td.style.background = '#C8E6C9';
+              setTimeout(function() { td.style.background = ''; }, 1500);
+            }
+          })
+          .withFailureHandler(function(err) {
+            td.style.background = '#FFCDD2';
+            td.title = err.message;
+          })
+          .updateStudentMark(code, resultsEmail, questionLabel, value);
       }
 
       function showExamList() {

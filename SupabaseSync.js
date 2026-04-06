@@ -1003,6 +1003,43 @@ function getExamPartsForStudentReport(examCode) {
 }
 
 /**
+/**
+ * Updates (upserts) a single student self-reported mark.
+ * Called from the results view when a student edits a cell inline.
+ */
+function updateStudentMark(examCode, studentEmail, questionLabel, value) {
+  try {
+    if (!examCode || !studentEmail || !questionLabel) return { error: "Missing required fields." };
+    var email = studentEmail.toString().trim().toLowerCase();
+    var val = parseFloat(value);
+    if (isNaN(val) || val < 0) return { error: "Invalid mark value." };
+
+    // Upsert: update if exists, insert if not
+    var existing = supabaseRequest_("GET", "student_responses", null,
+      "exam_code=eq." + encodeURIComponent(examCode) +
+      "&student_email=eq." + encodeURIComponent(email) +
+      "&question_label=eq." + encodeURIComponent(questionLabel) +
+      "&select=id");
+
+    if (existing && existing.length > 0) {
+      supabaseRequest_("PATCH", "student_responses", { marks_reported: val },
+        "id=eq." + existing[0].id);
+    } else {
+      supabaseRequest_("POST", "student_responses", [{
+        exam_code: examCode,
+        student_email: email,
+        question_label: questionLabel,
+        marks_reported: val
+      }]);
+    }
+
+    return { success: true };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
  * Submits a student's self-reported marks to Supabase.
  * Called from StudentReport.html via google.script.run.
  *
