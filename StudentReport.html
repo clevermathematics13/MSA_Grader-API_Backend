@@ -84,6 +84,43 @@
       .total-value { font-size: 1.3em; color: #667eea; }
 
       .exam-select-section { margin-bottom: 20px; }
+
+      .btn-secondary {
+        background: transparent; color: #667eea; border: 2px solid #667eea;
+      }
+      .btn-secondary:hover { background: #f0f4ff; }
+      .btn-row { display: flex; gap: 10px; margin-top: 20px; }
+      .btn-row .btn { flex: 1; margin-top: 0; }
+
+      .results-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+      .results-table th, .results-table td {
+        padding: 10px 12px; text-align: center; border-bottom: 1px solid #f0f0f0;
+      }
+      .results-table th {
+        background: #f8f9fa; font-weight: 600; color: #555; font-size: 12px;
+        text-transform: uppercase; letter-spacing: 0.5px;
+      }
+      .results-table td.label-cell { text-align: left; font-weight: 600; color: #333; }
+      .results-table tr:last-child td { border-bottom: none; }
+      .results-table .total-row-table td {
+        font-weight: 700; background: #f8f9fa; border-top: 2px solid #e0e0e0;
+      }
+      .match { color: #27ae60; }
+      .mismatch { color: #e74c3c; }
+      .pending { color: #888; font-style: italic; }
+
+      .results-exam-card {
+        background: #f8f9fa; border-radius: 8px; padding: 14px 16px;
+        margin-bottom: 10px; cursor: pointer; transition: all 0.2s;
+        border: 2px solid transparent;
+      }
+      .results-exam-card:hover { border-color: #667eea; background: #f0f4ff; }
+      .results-exam-card .exam-card-title { font-weight: 600; color: #333; }
+      .back-link {
+        display: inline-block; margin-bottom: 16px; color: #667eea;
+        cursor: pointer; font-size: 14px; font-weight: 600;
+      }
+      .back-link:hover { text-decoration: underline; }
     </style>
   </head>
   <body>
@@ -107,7 +144,10 @@
             </select>
           </div>
 
-          <button class="btn btn-primary" id="loadExamBtn" onclick="loadExam()">Load Exam</button>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="loadExamBtn" onclick="loadExam()">Submit Marks</button>
+            <button class="btn btn-secondary" id="viewResultsBtn" onclick="viewResults()">View My Results</button>
+          </div>
           <div id="step1Status" class="status"></div>
         </div>
 
@@ -143,7 +183,36 @@
             <div style="font-size:3em;margin-bottom:12px;">✅</div>
             <h2 style="color:#27ae60;margin:0 0 8px 0;">Marks Submitted!</h2>
             <p style="color:#666;" id="confirmationMsg"></p>
+            <button class="btn btn-secondary" style="margin-top:16px;" onclick="viewResultsAfterSubmit()">View My Results</button>
           </div>
+        </div>
+
+        <!-- Step 4: View Results -->
+        <div id="step4" style="display:none;">
+          <span class="back-link" onclick="backToStart()">← Back</span>
+
+          <!-- Exam list (when no specific exam selected) -->
+          <div id="resultsExamList">
+            <div class="loading" id="resultsLoading">
+              <div class="spinner"></div><br>Loading your exams...
+            </div>
+            <div id="resultsExamCards"></div>
+          </div>
+
+          <!-- Single exam results -->
+          <div id="resultsDetail" style="display:none;">
+            <span class="back-link" id="backToExamList" onclick="showExamList()" style="display:none;">← All Exams</span>
+            <h3 style="margin:0 0 4px 0;color:#333;" id="resultsExamTitle"></h3>
+            <p style="color:#888;margin:0 0 16px 0;font-size:13px;" id="resultsEmail"></p>
+
+            <div class="loading" id="resultsDetailLoading">
+              <div class="spinner"></div><br>Loading results...
+            </div>
+
+            <div id="resultsTableContainer" style="display:none;"></div>
+          </div>
+
+          <div id="step4Status" class="status"></div>
         </div>
       </div>
     </div>
@@ -357,6 +426,215 @@
         var div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+      }
+
+      // ── View Results Functions ──────────────────────────────
+
+      var resultsEmail = '';
+      var resultsFromSubmit = false;
+
+      function viewResults() {
+        var email = document.getElementById('emailInput').value.trim().toLowerCase();
+        if (!email || email.indexOf('@') === -1) {
+          showStatus('step1Status', 'error', 'Please enter a valid school email.');
+          return;
+        }
+        resultsEmail = email;
+        resultsFromSubmit = false;
+        showStep4();
+        loadStudentExams(email);
+      }
+
+      function viewResultsAfterSubmit() {
+        resultsEmail = document.getElementById('confirmedEmail').textContent;
+        resultsFromSubmit = true;
+        document.getElementById('step3').style.display = 'none';
+        showStep4();
+
+        // If we know the exam, go straight to results detail
+        if (examCode) {
+          showResultsForExam(examCode);
+        } else {
+          loadStudentExams(resultsEmail);
+        }
+      }
+
+      function showStep4() {
+        document.getElementById('step1').style.display = 'none';
+        document.getElementById('step2').style.display = 'none';
+        document.getElementById('step3').style.display = 'none';
+        document.getElementById('step4').style.display = 'block';
+        document.getElementById('examTitle').textContent = 'My Results';
+        // Reset
+        document.getElementById('resultsExamList').style.display = 'block';
+        document.getElementById('resultsDetail').style.display = 'none';
+        document.getElementById('resultsExamCards').innerHTML = '';
+        document.getElementById('resultsLoading').style.display = 'block';
+        hideStatus('step4Status');
+      }
+
+      function hideStatus(id) {
+        var el = document.getElementById(id);
+        el.style.display = 'none';
+        el.className = 'status';
+      }
+
+      function loadStudentExams(email) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById('resultsLoading').style.display = 'none';
+            if (result.error) {
+              showStatus('step4Status', 'error', result.error);
+              return;
+            }
+            var exams = result.exams || [];
+            if (exams.length === 0) {
+              showStatus('step4Status', 'info', 'No submissions found for ' + email);
+              return;
+            }
+            if (exams.length === 1) {
+              // Only one exam — go straight to detail
+              showResultsForExam(exams[0]);
+              return;
+            }
+            // Multiple exams — show cards
+            var container = document.getElementById('resultsExamCards');
+            container.innerHTML = '';
+            exams.forEach(function(code) {
+              var card = document.createElement('div');
+              card.className = 'results-exam-card';
+              card.innerHTML = '<div class="exam-card-title">' + escapeHtml(code) + '</div>';
+              card.onclick = function() { showResultsForExam(code); };
+              container.appendChild(card);
+            });
+          })
+          .withFailureHandler(function(err) {
+            document.getElementById('resultsLoading').style.display = 'none';
+            showStatus('step4Status', 'error', 'Failed to load exams: ' + err.message);
+          })
+          .getStudentExams(email);
+      }
+
+      function showResultsForExam(code) {
+        document.getElementById('resultsExamList').style.display = 'none';
+        document.getElementById('resultsDetail').style.display = 'block';
+        document.getElementById('resultsExamTitle').textContent = code;
+        document.getElementById('resultsEmail').textContent = resultsEmail;
+        document.getElementById('resultsDetailLoading').style.display = 'block';
+        document.getElementById('resultsTableContainer').style.display = 'none';
+        document.getElementById('backToExamList').style.display = resultsFromSubmit ? 'none' : 'inline-block';
+        hideStatus('step4Status');
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById('resultsDetailLoading').style.display = 'none';
+            if (result.error) {
+              showStatus('step4Status', 'error', result.error);
+              return;
+            }
+            renderResultsTable(result.submitted, result.grades);
+          })
+          .withFailureHandler(function(err) {
+            document.getElementById('resultsDetailLoading').style.display = 'none';
+            showStatus('step4Status', 'error', 'Failed to load results: ' + err.message);
+          })
+          .getStudentResults(code, resultsEmail);
+      }
+
+      function renderResultsTable(submitted, grades) {
+        var container = document.getElementById('resultsTableContainer');
+
+        // Build lookup maps
+        var subMap = {};
+        var subTotal = 0;
+        (submitted || []).forEach(function(s) {
+          subMap[s.question_label] = s.marks_reported;
+          subTotal += (parseFloat(s.marks_reported) || 0);
+        });
+
+        var gradeMap = {};
+        var gradeTotal = 0;
+        var maxTotal = 0;
+        (grades || []).forEach(function(g) {
+          gradeMap[g.question_code] = g;
+          gradeTotal += (parseFloat(g.marks_awarded) || 0);
+          maxTotal += (parseFloat(g.marks_possible) || 0);
+        });
+
+        // Merge all labels (union of submitted + graded)
+        var allLabels = [];
+        var seen = {};
+        (submitted || []).forEach(function(s) {
+          if (!seen[s.question_label]) { allLabels.push(s.question_label); seen[s.question_label] = true; }
+        });
+        (grades || []).forEach(function(g) {
+          if (!seen[g.question_code]) { allLabels.push(g.question_code); seen[g.question_code] = true; }
+        });
+
+        var hasGrades = grades && grades.length > 0;
+
+        var html = '<table class="results-table"><thead><tr>' +
+          '<th style="text-align:left;">Question</th>' +
+          '<th>Your Report</th>';
+        if (hasGrades) {
+          html += '<th>Official</th><th>Max</th>';
+        }
+        html += '</tr></thead><tbody>';
+
+        allLabels.forEach(function(label) {
+          var sub = subMap[label];
+          var grade = gradeMap[label];
+          var subVal = (sub !== undefined) ? sub : '';
+          var offVal = grade ? grade.marks_awarded : '';
+          var maxVal = grade ? grade.marks_possible : '';
+
+          // Determine match/mismatch styling
+          var matchClass = '';
+          if (sub !== undefined && grade) {
+            matchClass = (parseFloat(sub) === parseFloat(grade.marks_awarded)) ? 'match' : 'mismatch';
+          }
+
+          html += '<tr>' +
+            '<td class="label-cell">' + escapeHtml(label) + '</td>' +
+            '<td>' + (subVal !== '' ? subVal : '<span class="pending">—</span>') + '</td>';
+          if (hasGrades) {
+            html += '<td class="' + matchClass + '">' +
+              (offVal !== '' ? offVal : '<span class="pending">pending</span>') + '</td>' +
+              '<td>' + (maxVal !== '' ? maxVal : '') + '</td>';
+          }
+          html += '</tr>';
+        });
+
+        // Totals row
+        html += '<tr class="total-row-table">' +
+          '<td class="label-cell">Total</td>' +
+          '<td>' + subTotal + '</td>';
+        if (hasGrades) {
+          var totalMatch = (subTotal === gradeTotal) ? 'match' : 'mismatch';
+          html += '<td class="' + totalMatch + '">' + gradeTotal + '</td>' +
+            '<td>' + maxTotal + '</td>';
+        }
+        html += '</tr></tbody></table>';
+
+        if (!hasGrades && submitted && submitted.length > 0) {
+          html += '<p style="text-align:center;color:#888;font-size:13px;margin-top:12px;">' +
+            'Official grades will appear here once your teacher has finished marking.</p>';
+        }
+
+        container.innerHTML = html;
+        container.style.display = 'block';
+      }
+
+      function showExamList() {
+        document.getElementById('resultsDetail').style.display = 'none';
+        document.getElementById('resultsExamList').style.display = 'block';
+      }
+
+      function backToStart() {
+        document.getElementById('step4').style.display = 'none';
+        document.getElementById('step1').style.display = 'block';
+        document.getElementById('examTitle').textContent = examCode || 'Select an exam below';
+        hideStatus('step4Status');
       }
     </script>
   </body>

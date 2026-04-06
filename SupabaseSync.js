@@ -1092,6 +1092,80 @@ function getActiveExamsForReport() {
 }
 
 /**
+ * Retrieves a student's submitted marks and official grades for an exam.
+ * Called from StudentReport.html via google.script.run.
+ *
+ * @param {string} examCode - The exam code
+ * @param {string} studentEmail - The student's email
+ * @returns {Object} { submitted: [{question_label, marks_reported}], grades: [{question_code, marks_awarded, marks_possible}], error? }
+ */
+function getStudentResults(examCode, studentEmail) {
+  try {
+    if (!examCode || !studentEmail) return { error: "Missing exam code or email." };
+
+    var email = studentEmail.toString().trim().toLowerCase();
+    if (!email || email.indexOf("@") === -1) return { error: "Invalid email." };
+
+    // Fetch self-reported marks from student_responses
+    var submitted = supabaseRequest_("GET", "student_responses", null,
+      "exam_code=eq." + encodeURIComponent(examCode) +
+      "&student_email=eq." + encodeURIComponent(email) +
+      "&select=question_label,marks_reported" +
+      "&order=question_label.asc");
+
+    // Fetch official grades from grades table
+    var grades = supabaseRequest_("GET", "grades", null,
+      "exam_code=eq." + encodeURIComponent(examCode) +
+      "&student_email=eq." + encodeURIComponent(email) +
+      "&select=question_code,marks_awarded,marks_possible" +
+      "&order=question_code.asc");
+
+    return {
+      submitted: submitted || [],
+      grades: grades || []
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Gets the list of exams a student has submitted marks for.
+ * Called from StudentReport.html via google.script.run.
+ *
+ * @param {string} studentEmail - The student's email
+ * @returns {Object} { exams: [string], error? }
+ */
+function getStudentExams(studentEmail) {
+  try {
+    if (!studentEmail) return { error: "Missing email." };
+
+    var email = studentEmail.toString().trim().toLowerCase();
+    if (!email || email.indexOf("@") === -1) return { error: "Invalid email." };
+
+    // Get distinct exam codes the student has submitted
+    var rows = supabaseRequest_("GET", "student_responses", null,
+      "student_email=eq." + encodeURIComponent(email) +
+      "&select=exam_code");
+
+    // Deduplicate exam codes
+    var seen = {};
+    var exams = [];
+    for (var i = 0; i < (rows || []).length; i++) {
+      var code = rows[i].exam_code;
+      if (code && !seen[code]) {
+        seen[code] = true;
+        exams.push(code);
+      }
+    }
+
+    return { exams: exams };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
  * Shows the student self-report URL for the current exam.
  * Menu action: Database Tools → Get Student Report Link
  */
